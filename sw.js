@@ -1,4 +1,4 @@
-const CACHE = "indkob-v2";
+const CACHE = "indkob-v3";
 const CORE = [
   "./",
   "./index.html",

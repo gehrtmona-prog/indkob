@@ -141,7 +141,13 @@
   .winput { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); outline: none; }
   .winput:focus { border-color: var(--accent); }
 
-  /* Setup overlay */
+  .sheetfoot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .who { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sheetfoot .linkbtn { width: auto; margin: 0; flex: none; }
+  .authmsg { font-size: 14px; min-height: 20px; margin-top: 16px; }
+  .authrow { margin-top: 10px; }
+
+  /* Fuldskærms-overlay (login / setup) */
   .setup {
     position: fixed; inset: 0; background: var(--bg); z-index: 100; overflow-y: auto;
     padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
@@ -152,6 +158,7 @@
   .setup ol { padding-left: 20px; line-height: 1.7; }
   .setup code { background: var(--line); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }
   .setup pre { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; overflow-x: auto; font-size: 12.5px; }
+  .setup .winput { margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -194,18 +201,27 @@
       <ul class="lists" id="listsUl"></ul>
       <button class="newlistbtn" id="newInSheet">＋ Ny liste</button>
       <button class="linkbtn" id="joinInSheet">Tilslut en delt liste</button>
+      <div class="sheetfoot">
+        <span class="who" id="whoami"></span>
+        <button class="linkbtn" id="logoutBtn">Log ud</button>
+      </div>
     </div>
   </div>
 
-  <!-- Velkomst: vises når enheden endnu ikke har valgt en liste -->
-  <div class="setup" id="welcome" hidden>
+  <!-- Login -->
+  <div class="setup" id="login" hidden>
     <div class="inner">
-      <h2>Velkommen 🛒</h2>
-      <p>Vil du oprette en ny indkøbsliste, eller tilslutte dig en, nogen har delt med dig?</p>
-      <button class="newlistbtn" id="wCreate">＋ Opret ny liste</button>
-      <p style="margin-top: 26px;">Har du fået et invitations-link eller en kode? Indsæt det her:</p>
-      <input id="wInput" class="winput" placeholder="Indsæt link eller kode…" autocomplete="off">
-      <button class="newlistbtn" id="wJoin" style="margin-top: 10px;">Tilslut liste</button>
+      <h2>Log ind 🛒</h2>
+      <p>Skriv din e-mail, så sender vi dig et login-link. Eller log ind med en adgangskode.</p>
+      <input id="email" class="winput" type="email" placeholder="din@email.dk" autocomplete="email" inputmode="email">
+      <button class="newlistbtn" id="magicBtn">Send mig et login-link</button>
+      <button class="linkbtn" id="togglePw">Brug adgangskode i stedet</button>
+      <div id="pwArea" hidden>
+        <input id="password" class="winput authrow" type="password" placeholder="Adgangskode" autocomplete="current-password">
+        <button class="newlistbtn" id="loginBtn">Log ind</button>
+        <button class="linkbtn" id="signupBtn">Opret ny konto med adgangskode</button>
+      </div>
+      <p id="authMsg" class="authmsg"></p>
     </div>
   </div>
 
@@ -213,240 +229,215 @@
   <div class="setup" id="setupOverlay" hidden>
     <div class="inner">
       <h2>Næsten klar 🛠️</h2>
-      <p>Appen mangler bare forbindelse til din gratis Supabase-database. Følg trinene i <code>SETUP.md</code>, og indsæt derefter dine to nøgler øverst i <code>index.html</code> (i feltet <code>CONFIG</code>).</p>
-      <ol>
-        <li>Opret gratis projekt på <strong>supabase.com</strong></li>
-        <li>Kør opsætnings-SQL'en fra <code>SETUP.md</code></li>
-        <li>Kopiér <strong>Project URL</strong> og <strong>anon key</strong> ind i konfigurationen</li>
-      </ol>
-      <p>Så er du klar til at synkronisere med familien.</p>
+      <p>Appen mangler bare forbindelse til din Supabase-database. Indsæt dine to nøgler øverst i <code>index.html</code> (i feltet <code>CONFIG</code>).</p>
     </div>
   </div>
 
 <script type="module">
   /* ===================== CONFIG ===================== */
-  /* Indsæt dine egne værdier fra Supabase (Settings → API). */
   const SUPABASE_URL = "https://bmcopzegsukcbfissfpy.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_Aeynqr3uG3J1FmRqxktkGg_uI5uTnZb";
   /* ================================================== */
 
   const configured = !SUPABASE_URL.startsWith("DIN_") && !SUPABASE_ANON_KEY.startsWith("DIN_");
-
   const $ = id => document.getElementById(id);
   const app = $("app"), bar = $("barwrap");
+  let supa, uid;
 
-  if (!configured) {
-    $("setupOverlay").hidden = false;
-  } else {
-    app.hidden = false; bar.hidden = false;
-    boot();
+  /* Lokal cache (så appen også viser noget offline) */
+  const MEMBERS_KEY = "indkob.members";   // mine list-id'er
+  const NAMES_KEY = "indkob.listnames";   // { id: navn }
+  const getMembers = () => JSON.parse(localStorage.getItem(MEMBERS_KEY) || "[]");
+  const saveMembers = a => localStorage.setItem(MEMBERS_KEY, JSON.stringify([...new Set(a)]));
+  const getNames = () => JSON.parse(localStorage.getItem(NAMES_KEY) || "{}");
+  const saveNames = o => localStorage.setItem(NAMES_KEY, JSON.stringify(o));
+  const setNameCache = (id, name) => { const o = getNames(); o[id] = name; saveNames(o); };
+  const listName = id => getNames()[id] || "Indkøb";
+
+  // Udtræk liste-koden fra et indsat link eller en kode
+  const parseListId = raw => {
+    let id = (raw || "").trim();
+    if (id.includes("join=")) id = id.split("join=").pop();
+    if (id.includes("#")) id = id.split("#").pop();
+    return id.split("&")[0].trim();
+  };
+
+  async function main() {
+    if (!configured) { $("setupOverlay").hidden = false; return; }
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      realtime: { params: { eventsPerSecond: 5 } }
+    });
+    const { data: { session } } = await supa.auth.getSession();
+    if (!session) { showLogin(); return; }
+    uid = session.user.id;
+    boot(session.user);
   }
 
-  async function boot() {
-    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-    const supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { realtime: { params: { eventsPerSecond: 5 } } });
-
-    /* ---- Liste-ID (deles via link-hash) ---- */
-    // Udtræk liste-koden fra en indsat streng (fuldt link eller bare koden)
-    const parseListId = raw => {
-      let id = (raw || "").trim();
-      if (id.includes("#")) id = id.split("#").pop();
-      return id.trim();
+  /* ---------------- LOGIN ---------------- */
+  function showLogin() {
+    app.hidden = true; bar.hidden = true;
+    $("login").hidden = false;
+    const msg = (t, err) => { const m = $("authMsg"); m.textContent = t || ""; m.style.color = err ? "var(--warn)" : "var(--muted)"; };
+    $("togglePw").onclick = () => { $("pwArea").hidden = !$("pwArea").hidden; };
+    $("magicBtn").onclick = async () => {
+      const email = $("email").value.trim();
+      if (!email) { $("email").focus(); return; }
+      msg("Sender link…");
+      const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href } });
+      msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din indbakke – vi har sendt dig et login-link ✉️", !!error);
     };
-    function adoptList(id, name) {
-      const m = JSON.parse(localStorage.getItem("indkob.members") || "[]"); m.push(id);
-      localStorage.setItem("indkob.members", JSON.stringify([...new Set(m)]));
-      if (name) {
-        const o = JSON.parse(localStorage.getItem("indkob.listnames") || "{}"); o[id] = name;
-        localStorage.setItem("indkob.listnames", JSON.stringify(o));
-      }
-      localStorage.setItem("indkob.lastList", id);
-      location.hash = id;
-      location.reload();
-    }
-    function showWelcome() {
-      app.hidden = true; bar.hidden = true;
-      $("welcome").hidden = false;
-      const join = () => { const id = parseListId($("wInput").value); if (!id) { $("wInput").focus(); return; } adoptList(id); };
-      $("wCreate").onclick = () => adoptList(crypto.randomUUID(), (window.prompt("Navn på listen?", "Indkøb") || "").trim() || "Indkøb");
-      $("wJoin").onclick = join;
-      $("wInput").onkeydown = e => { if (e.key === "Enter") join(); };
-    }
+    $("loginBtn").onclick = async () => {
+      const email = $("email").value.trim(), password = $("password").value;
+      if (!email || !password) { msg("Skriv e-mail og adgangskode.", true); return; }
+      msg("Logger ind…");
+      const { error } = await supa.auth.signInWithPassword({ email, password });
+      if (error) msg("Forkert e-mail eller adgangskode.", true); else location.reload();
+    };
+    $("signupBtn").onclick = async () => {
+      const email = $("email").value.trim(), password = $("password").value;
+      if (!email || !password) { msg("Skriv e-mail og vælg en adgangskode (min. 6 tegn).", true); return; }
+      msg("Opretter konto…");
+      const { data, error } = await supa.auth.signUp({ email, password });
+      if (error) msg(error.message, true);
+      else if (data.session) location.reload();
+      else msg("Konto oprettet! Tjek din e-mail for at bekræfte – log derefter ind.", false);
+    };
+    $("email").onkeydown = e => { if (e.key === "Enter") $("magicBtn").click(); };
+  }
 
-    const hadHash = !!location.hash.slice(1);
-    let listId = location.hash.slice(1) || localStorage.getItem("indkob.lastList") || "";
-    if (!listId) { showWelcome(); return; }
-    location.hash = listId;
-    localStorage.setItem("indkob.lastList", listId);
-    const cacheKey = () => "indkob.items." + listId;
-
-    // --- Lister: medlemskab (lokalt) + navne (fælles via databasen, cachet lokalt) ---
-    const MEMBERS_KEY = "indkob.members"; // array af list-id'er denne enhed kender
-    const NAMES_KEY = "indkob.listnames"; // { id: navn } – cache så navne også vises offline
-
-    // Migrér fra den gamle struktur (array af {id,name}) hvis den findes
-    (function migrate() {
-      const old = localStorage.getItem("indkob.lists");
-      if (old && !localStorage.getItem(MEMBERS_KEY)) {
-        try {
-          const arr = JSON.parse(old);
-          localStorage.setItem(MEMBERS_KEY, JSON.stringify(arr.map(l => l.id)));
-          const names = {}; arr.forEach(l => { if (l.name) names[l.id] = l.name; });
-          localStorage.setItem(NAMES_KEY, JSON.stringify(names));
-        } catch (_) {}
-      }
-    })();
-
-    const getMembers = () => JSON.parse(localStorage.getItem(MEMBERS_KEY) || "[]");
-    const saveMembers = a => localStorage.setItem(MEMBERS_KEY, JSON.stringify([...new Set(a)]));
-    const getNames = () => JSON.parse(localStorage.getItem(NAMES_KEY) || "{}");
-    const saveNames = o => localStorage.setItem(NAMES_KEY, JSON.stringify(o));
-    const listName = id => getNames()[id] || "Indkøb";
-    const setNameCache = (id, name) => { const o = getNames(); o[id] = name; saveNames(o); };
-
-    // Sørg for at den aktive liste er kendt og har et foreløbigt navn (erstattes af serverens navn)
-    if (!getMembers().includes(listId)) saveMembers([...getMembers(), listId]);
-    if (!getNames()[listId]) setNameCache(listId, hadHash ? "Delt liste" : (getMembers().length > 1 ? "Indkøbsliste" : "Indkøb"));
-
-    // Hent navne fra serveren + læg lokale lister op, der endnu ikke findes der
-    async function syncLists() {
-      const members = getMembers();
-      if (!members.length) return;
-      let rows;
-      try {
-        const r = await supa.from("lists").select("*").in("id", members);
-        if (r.error) throw r.error;
-        rows = r.data;
-      } catch (_) { return; } // offline: behold den lokale cache
-      const have = new Set(rows.map(r => r.id));
-      const names = getNames();
-      rows.forEach(r => { names[r.id] = r.name; });
-      saveNames(names);
-      for (const id of members.filter(m => !have.has(m))) {
-        try { await supa.from("lists").insert({ id, name: names[id] || "Indkøb" }); } catch (_) {}
-      }
-      updateTitle();
-      if (!$("listsSheet").hidden) renderLists();
-    }
-
-    /* ---- Tilstand ---- */
-    let items = JSON.parse(localStorage.getItem(cacheKey()) || "[]");
-    let outbox = JSON.parse(localStorage.getItem("indkob.outbox") || "[]");
+  /* ---------------- APP ---------------- */
+  async function boot(user) {
+    app.hidden = false; bar.hidden = false;
 
     const list = $("list"), empty = $("empty"), count = $("count"),
           clearBtn = $("clearbtn"), form = $("form"), input = $("input"),
           dot = $("dot"), statustext = $("statustext"), toast = $("toast");
 
+    const setStatus = (state, text) => { dot.className = "dot" + (state === "ok" ? " ok" : state === "warn" ? " warn" : ""); statustext.textContent = text; };
+    const showToast = m => { toast.textContent = m; toast.classList.add("show"); clearTimeout(showToast._t); showToast._t = setTimeout(() => toast.classList.remove("show"), 1800); };
+
+    /* --- Lister fra serveren (med lokal cache) --- */
+    async function claimLocalLists() {
+      const local = getMembers();
+      if (!local.length) return;
+      try {
+        const { data: mem } = await supa.from("list_members").select("list_id").eq("user_id", uid);
+        const haveMem = new Set((mem || []).map(m => m.list_id));
+        const names = getNames();
+        for (const id of local) {
+          if (!haveMem.has(id)) {
+            await supa.from("lists").insert({ id, name: names[id] || "Indkøb" }); // findes evt. allerede – fejl ignoreres
+            await supa.from("list_members").insert({ list_id: id, user_id: uid });
+          }
+        }
+      } catch (_) {}
+    }
+    async function loadMyLists() {
+      try {
+        const { data: mem, error } = await supa.from("list_members").select("list_id").eq("user_id", uid);
+        if (error) throw error;
+        const ids = (mem || []).map(m => m.list_id);
+        const names = getNames();
+        if (ids.length) {
+          const { data: ls } = await supa.from("lists").select("*").in("id", ids);
+          (ls || []).forEach(l => { names[l.id] = l.name; });
+        }
+        saveMembers(ids); saveNames(names);
+      } catch (_) { /* offline: behold cache */ }
+    }
+    async function createList(name) {
+      const id = crypto.randomUUID();
+      let r = await supa.from("lists").insert({ id, name }); if (r.error) throw r.error;
+      r = await supa.from("list_members").insert({ list_id: id, user_id: uid }); if (r.error) throw r.error;
+      setNameCache(id, name); saveMembers([...getMembers(), id]);
+      return id;
+    }
+    async function joinServer(id) {
+      const r = await supa.from("list_members").insert({ list_id: id, user_id: uid });
+      if (r.error && !String(r.error.message || "").includes("duplicate")) throw r.error;
+      try { const { data } = await supa.from("lists").select("name").eq("id", id).maybeSingle(); if (data) setNameCache(id, data.name); } catch (_) {}
+      saveMembers([...getMembers(), id]);
+    }
+    const switchTo = id => { localStorage.setItem("indkob.lastList", id); location.assign(location.pathname); };
+
+    /* --- Bestem aktuel liste --- */
+    await claimLocalLists();
+    await loadMyLists();
+
+    const joinId = parseListId(new URLSearchParams(location.search).get("join") || "");
+    if (joinId) {
+      try { await joinServer(joinId); localStorage.setItem("indkob.lastList", joinId); }
+      catch (_) { showToast("Kunne ikke tilslutte listen"); }
+      history.replaceState(null, "", location.pathname);
+    }
+
+    let listId = localStorage.getItem("indkob.lastList");
+    if (!getMembers().includes(listId)) listId = getMembers()[0] || null;
+    if (!listId) {
+      try { listId = await createList("Indkøb"); }
+      catch (_) { setStatus("warn", "Ingen forbindelse – prøv igen senere"); return; }
+    }
+    localStorage.setItem("indkob.lastList", listId);
+
+    const cacheKey = () => "indkob.items." + listId;
+    let items = JSON.parse(localStorage.getItem(cacheKey()) || "[]");
+    let outbox = JSON.parse(localStorage.getItem("indkob.outbox") || "[]");
     const saveCache = () => localStorage.setItem(cacheKey(), JSON.stringify(items));
     const saveOutbox = () => localStorage.setItem("indkob.outbox", JSON.stringify(outbox));
 
-    function setStatus(state, text) {
-      dot.className = "dot" + (state === "ok" ? " ok" : state === "warn" ? " warn" : "");
-      statustext.textContent = text;
-    }
-    function showToast(msg) {
-      toast.textContent = msg; toast.classList.add("show");
-      clearTimeout(showToast._t);
-      showToast._t = setTimeout(() => toast.classList.remove("show"), 1800);
-    }
-
-    const nodes = new Map(); // id -> li-element (genbruges på tværs af gentegninger)
-
+    /* --- Render af varer (inkrementel) --- */
+    const nodes = new Map();
     function makeLi(id) {
       const li = document.createElement("li");
-      const box = document.createElement("div");
-      box.className = "box";
-      box.onclick = () => toggle(id);
-
-      const label = document.createElement("span");
-      label.className = "label";
-
-      const del = document.createElement("button");
-      del.className = "del"; del.textContent = "×";
-      del.onclick = () => remove(id);
-
-      li.append(box, label, del);
-      li._label = label;
-      return li;
+      const box = document.createElement("div"); box.className = "box"; box.onclick = () => toggle(id);
+      const label = document.createElement("span"); label.className = "label";
+      const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.onclick = () => remove(id);
+      li.append(box, label, del); li._label = label; return li;
     }
-
     function render(opt = {}) {
-      const sorted = [...items].sort((a, b) =>
-        (a.done - b.done) || (new Date(a.created_at) - new Date(b.created_at)));
+      const sorted = [...items].sort((a, b) => (a.done - b.done) || (new Date(a.created_at) - new Date(b.created_at)));
       const ids = new Set(items.map(i => i.id));
-
-      // Fjern varer der ikke længere findes
-      for (const [id, li] of nodes) {
-        if (!ids.has(id)) { li.remove(); nodes.delete(id); }
-      }
-
-      // Opret/opdatér + sæt i rigtig rækkefølge
+      for (const [id, li] of nodes) { if (!ids.has(id)) { li.remove(); nodes.delete(id); } }
       sorted.forEach((it, idx) => {
         let li = nodes.get(it.id);
-        if (!li) {
-          li = makeLi(it.id);
-          if (opt.appearId === it.id) li.classList.add("appear");
-          nodes.set(it.id, li);
-        }
+        if (!li) { li = makeLi(it.id); if (opt.appearId === it.id) li.classList.add("appear"); nodes.set(it.id, li); }
         if (li._label.textContent !== it.text) li._label.textContent = it.text;
         li.classList.toggle("done", it.done);
         if (list.children[idx] !== li) list.insertBefore(li, list.children[idx] || null);
       });
-
       const left = items.filter(i => !i.done).length;
       empty.hidden = items.length > 0;
       count.textContent = items.length ? `${left} tilbage` : "";
       clearBtn.hidden = !items.some(i => i.done);
     }
 
-    /* ---- Skrivninger (optimistisk + outbox-fallback) ---- */
+    /* --- Varer: skrivninger (optimistisk + outbox) --- */
     async function run(op) {
-      try {
-        await op.exec(supa);
-        return true;
-      } catch (e) {
-        outbox.push(op.queued); saveOutbox();
-        setStatus("warn", "Offline – gemmes når der er net");
-        return false;
-      }
+      try { await op.exec(); return true; }
+      catch (e) { outbox.push(op.queued); saveOutbox(); setStatus("warn", "Offline – gemmes når der er net"); return false; }
     }
-
     function addItem(text) {
       const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, created_at: new Date().toISOString() };
       items.push(item); saveCache(); render({ appearId: item.id });
-      run({
-        queued: { type: "insert", row: item },
-        exec: s => s.from("items").insert(item).then(r => { if (r.error) throw r.error; })
-      });
+      run({ queued: { type: "insert", row: item }, exec: () => supa.from("items").insert(item).then(r => { if (r.error) throw r.error; }) });
     }
     function toggle(id) {
-      const it = items.find(i => i.id === id);
-      if (!it) return;
+      const it = items.find(i => i.id === id); if (!it) return;
       it.done = !it.done; saveCache(); render();
-      run({
-        queued: { type: "update", id: it.id, done: it.done },
-        exec: s => s.from("items").update({ done: it.done }).eq("id", it.id).then(r => { if (r.error) throw r.error; })
-      });
+      run({ queued: { type: "update", id, done: it.done }, exec: () => supa.from("items").update({ done: it.done }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
     }
     function remove(id) {
-      const it = items.find(i => i.id === id);
-      if (!it) return;
+      const it = items.find(i => i.id === id); if (!it) return;
       items = items.filter(x => x.id !== id); saveCache(); render();
-      run({
-        queued: { type: "delete", id },
-        exec: s => s.from("items").delete().eq("id", id).then(r => { if (r.error) throw r.error; })
-      });
+      run({ queued: { type: "delete", id }, exec: () => supa.from("items").delete().eq("id", id).then(r => { if (r.error) throw r.error; }) });
     }
     function clearDone() {
-      const ids = items.filter(i => i.done).map(i => i.id);
-      if (!ids.length) return;
+      const ids = items.filter(i => i.done).map(i => i.id); if (!ids.length) return;
       items = items.filter(i => !i.done); saveCache(); render();
-      run({
-        queued: { type: "deleteMany", ids },
-        exec: s => s.from("items").delete().in("id", ids).then(r => { if (r.error) throw r.error; })
-      });
+      run({ queued: { type: "deleteMany", ids }, exec: () => supa.from("items").delete().in("id", ids).then(r => { if (r.error) throw r.error; }) });
     }
-
     async function flushOutbox() {
       if (!outbox.length) return;
       const pending = outbox; outbox = []; saveOutbox();
@@ -460,115 +451,58 @@
       }
       saveOutbox();
     }
-
-    /* ---- Hent fra server ---- */
     async function fetchAll() {
       const { data, error } = await supa.from("items").select("*").eq("list_id", listId).order("created_at");
       if (error) { setStatus("warn", "Kunne ikke hente – viser gemt liste"); return; }
-      items = data; saveCache(); render();
-      setStatus("ok", "Synkroniseret");
+      items = data; saveCache(); render(); setStatus("ok", "Synkroniseret");
     }
 
-    /* ---- Realtime ---- */
+    /* --- Realtime --- */
     function subscribe() {
       supa.channel("list:" + listId)
-        .on("postgres_changes",
-          { event: "*", schema: "public", table: "items", filter: "list_id=eq." + listId },
-          payload => {
-            const { eventType, new: n, old: o } = payload;
-            let changed = false, appearId = null;
-            if (eventType === "INSERT") {
-              if (!items.some(i => i.id === n.id)) { items.push(n); changed = true; appearId = n.id; }
-            } else if (eventType === "UPDATE") {
-              const cur = items.find(i => i.id === n.id);
-              if (!cur || cur.done !== n.done || cur.text !== n.text) {
-                items = items.map(i => i.id === n.id ? n : i); changed = true;
-              }
-            } else if (eventType === "DELETE") {
-              if (items.some(i => i.id === o.id)) { items = items.filter(i => i.id !== o.id); changed = true; }
-            }
-            if (changed) { saveCache(); render(appearId ? { appearId } : {}); }
-          })
-        .on("postgres_changes",
-          { event: "*", schema: "public", table: "lists", filter: "id=eq." + listId },
-          payload => {
-            const n = payload.new;
-            if (payload.eventType !== "DELETE" && n && n.name) {
-              setNameCache(n.id, n.name); updateTitle();
-              if (!$("listsSheet").hidden) renderLists();
-            }
-          })
+        .on("postgres_changes", { event: "*", schema: "public", table: "items", filter: "list_id=eq." + listId }, payload => {
+          const { eventType, new: n, old: o } = payload; let changed = false, appearId = null;
+          if (eventType === "INSERT") { if (!items.some(i => i.id === n.id)) { items.push(n); changed = true; appearId = n.id; } }
+          else if (eventType === "UPDATE") { const cur = items.find(i => i.id === n.id); if (!cur || cur.done !== n.done || cur.text !== n.text) { items = items.map(i => i.id === n.id ? n : i); changed = true; } }
+          else if (eventType === "DELETE") { if (items.some(i => i.id === o.id)) { items = items.filter(i => i.id !== o.id); changed = true; } }
+          if (changed) { saveCache(); render(appearId ? { appearId } : {}); }
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "lists", filter: "id=eq." + listId }, payload => {
+          const n = payload.new;
+          if (payload.eventType !== "DELETE" && n && n.name) { setNameCache(n.id, n.name); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
+        })
         .subscribe(status => {
           if (status === "SUBSCRIBED") { setStatus("ok", "Synkroniseret"); flushOutbox().then(fetchAll); }
           else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setStatus("warn", "Genopretter forbindelse…");
         });
     }
 
-    /* ---- UI-handlinger ---- */
-    form.onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t) return; addItem(t); input.value = ""; };
-    clearBtn.onclick = clearDone;
-
-    $("invite").onclick = async () => {
-      const url = location.href;
-
-      // 1) Mobilens indbyggede deling
-      if (navigator.share) {
-        try { await navigator.share({ title: "Indkøbsliste", text: "Vores fælles indkøbsliste", url }); return; }
-        catch (e) { if (e && e.name === "AbortError") return; /* ellers prøv kopiering */ }
-      }
-      // 2) Kopiér til udklipsholder
-      try { await navigator.clipboard.writeText(url); showToast("Link kopieret – send det til familien"); return; }
-      catch (_) { /* falder igennem */ }
-      // 3) Ældre kopierings-metode
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0";
-        document.body.appendChild(ta); ta.focus(); ta.select();
-        const ok = document.execCommand("copy"); ta.remove();
-        if (ok) { showToast("Link kopieret – send det til familien"); return; }
-      } catch (_) { /* falder igennem */ }
-      // 4) Sidste udvej: vis linket så det kan kopieres manuelt
-      window.prompt("Kopiér linket og send det til familien:", url);
-    };
-
-    // --- Liste-oversigt UI ---
+    /* --- Liste-oversigt + handlinger --- */
     const updateTitle = () => { $("titleName").textContent = listName(listId); };
-
     function renderLists() {
       const ul = $("listsUl"); ul.innerHTML = "";
       const names = getNames();
       for (const id of getMembers()) {
         const li = document.createElement("li");
         li.className = "listrow" + (id === listId ? " current" : "");
-
-        const name = document.createElement("button");
-        name.className = "lname"; name.textContent = names[id] || "Indkøb";
-        name.onclick = () => { if (id !== listId) location.hash = id; else closeSheet(); };
-
-        const ren = document.createElement("button");
-        ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
+        const name = document.createElement("button"); name.className = "lname"; name.textContent = names[id] || "Indkøb";
+        name.onclick = () => { if (id !== listId) switchTo(id); else closeSheet(); };
+        const ren = document.createElement("button"); ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
         ren.onclick = e => { e.stopPropagation(); renameList(id); };
-
-        const del = document.createElement("button");
-        del.className = "rowbtn"; del.textContent = "×"; del.title = "Slet liste";
+        const del = document.createElement("button"); del.className = "rowbtn"; del.textContent = "×"; del.title = "Slet liste";
         del.onclick = e => { e.stopPropagation(); deleteList(id); };
-
-        li.append(name, ren, del);
-        ul.append(li);
+        li.append(name, ren, del); ul.append(li);
       }
     }
-    const openSheet = () => { renderLists(); $("listsSheet").hidden = false; syncLists(); };
+    async function refreshLists() { await loadMyLists(); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
+    const openSheet = () => { renderLists(); $("listsSheet").hidden = false; refreshLists(); };
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
     async function newList() {
       const name = window.prompt("Navn på den nye liste?", "Ny liste");
       if (name === null) return;
-      const id = crypto.randomUUID();
-      const finalName = name.trim() || "Ny liste";
-      setNameCache(id, finalName);
-      saveMembers([...getMembers(), id]);
-      try { await supa.from("lists").insert({ id, name: finalName }); } catch (_) {}
-      location.hash = id; // udløser genindlæsning af den nye liste
+      try { const id = await createList(name.trim() || "Ny liste"); switchTo(id); }
+      catch (_) { alert("Kunne ikke oprette listen – tjek din internetforbindelse."); }
     }
     async function renameList(id) {
       const cur = listName(id);
@@ -582,57 +516,59 @@
     async function deleteList(id) {
       const name = listName(id);
       if (!confirm(`Slet listen "${name}"?\n\nAlle varer på listen slettes – også for de andre, der deler den. Dette kan ikke fortrydes.`)) return;
-
-      // Slet varer + selve listen i databasen
       try {
         let r = await supa.from("items").delete().eq("list_id", id); if (r.error) throw r.error;
-        r = await supa.from("lists").delete().eq("id", id); if (r.error) throw r.error;
+        r = await supa.from("lists").delete().eq("id", id); if (r.error) throw r.error; // cascade fjerner medlemskaber
       } catch (_) { alert("Kunne ikke slette lige nu – tjek din internetforbindelse og prøv igen."); return; }
-
-      // Fjern fra medlemskab + lokal cache
       saveMembers(getMembers().filter(x => x !== id));
       const names = getNames(); delete names[id]; saveNames(names);
       localStorage.removeItem("indkob.items." + id);
-
       if (id === listId) {
-        // Vi slettede den aktive liste – hop til en anden (eller opret en frisk tom)
         const rest = getMembers();
-        if (rest.length) location.hash = rest[0];
-        else { const nid = crypto.randomUUID(); saveMembers([nid]); setNameCache(nid, "Indkøb"); location.hash = nid; }
-        // hashchange udløser genindlæsning (og syncLists lægger den nye liste op)
-      } else {
-        renderLists();
-      }
+        if (rest.length) switchTo(rest[0]);
+        else { localStorage.removeItem("indkob.lastList"); location.assign(location.pathname); }
+      } else { renderLists(); }
     }
-
-    function joinList() {
-      const id = parseListId(window.prompt("Indsæt invitations-link eller liste-kode for den liste, du vil tilslutte dig:"));
+    async function joinList() {
+      const id = parseListId(window.prompt("Indsæt invitations-link eller liste-kode:") || "");
       if (!id) return;
-      if (!getMembers().includes(id)) saveMembers([...getMembers(), id]);
-      if (id === listId) { closeSheet(); renderLists(); return; }
-      localStorage.setItem("indkob.lastList", id);
-      location.hash = id; // hashchange genindlæser med den tilsluttede liste
+      if (id === listId) { closeSheet(); return; }
+      try { await joinServer(id); switchTo(id); }
+      catch (_) { alert("Kunne ikke tilslutte – tjek linket/koden og din forbindelse."); }
     }
+    const inviteLink = () => location.origin + location.pathname + "?join=" + listId;
 
+    /* --- UI-wiring --- */
+    form.onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t) return; addItem(t); input.value = ""; };
+    clearBtn.onclick = clearDone;
+    $("invite").onclick = async () => {
+      const url = inviteLink();
+      if (navigator.share) { try { await navigator.share({ title: "Indkøbsliste", text: "Kom med på vores indkøbsliste", url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+      try { await navigator.clipboard.writeText(url); showToast("Link kopieret – send det til familien"); return; } catch (_) {}
+      try { const ta = document.createElement("textarea"); ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); const ok = document.execCommand("copy"); ta.remove(); if (ok) { showToast("Link kopieret – send det til familien"); return; } } catch (_) {}
+      window.prompt("Kopiér linket og send det til familien:", url);
+    };
     $("title").onclick = openSheet;
     $("closeSheet").onclick = closeSheet;
     $("sheetBackdrop").onclick = closeSheet;
     $("newInSheet").onclick = newList;
     $("joinInSheet").onclick = joinList;
     $("newlist").onclick = newList;
+    $("logoutBtn").onclick = async () => { await supa.auth.signOut(); location.reload(); };
+    $("whoami").textContent = user.email || "";
     updateTitle();
 
-    window.addEventListener("hashchange", () => location.reload());
     window.addEventListener("online", () => { setStatus("ok", "Online"); flushOutbox().then(fetchAll); });
     window.addEventListener("offline", () => setStatus("warn", "Offline – gemmes lokalt"));
 
-    /* ---- Start ---- */
+    /* --- Start --- */
     render();
     setStatus("", "Forbinder…");
     await fetchAll();
-    syncLists();
     subscribe();
   }
+
+  main();
 
   /* Service worker (gør den installerbar + offline) */
   if ("serviceWorker" in navigator) {
