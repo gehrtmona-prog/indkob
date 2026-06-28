@@ -130,9 +130,11 @@
   .sheethead h2 { font-size: 18px; margin: 0; }
   .lists { list-style: none; margin: 0; padding: 0; }
   .listrow { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
-  .lname { flex: 1; background: none; border: 0; color: var(--text); font-size: 17px; text-align: left; padding: 14px 2px; cursor: pointer; }
-  .listrow.current .lname { font-weight: 600; }
-  .listrow.current .lname::after { content: " ✓"; color: var(--ok); }
+  .lname { flex: 1; background: none; border: 0; color: var(--text); text-align: left; padding: 12px 2px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .ln-name { font-size: 17px; }
+  .ln-sub { font-size: 12px; color: var(--muted); }
+  .listrow.current .ln-name { font-weight: 600; }
+  .listrow.current .ln-name::after { content: " ✓"; color: var(--ok); }
   .rowbtn { background: none; border: 0; color: var(--muted); font-size: 17px; cursor: pointer; padding: 8px; border-radius: 8px; }
   .rowbtn:hover { background: var(--line); color: var(--text); }
   .newlistbtn { width: 100%; margin-top: 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 13px; font-size: 16px; cursor: pointer; }
@@ -225,6 +227,18 @@
         </div>
       </form>
       <p id="authMsg" class="authmsg"></p>
+    </div>
+  </div>
+
+  <!-- Velkomst: opret eller tilslut din første liste -->
+  <div class="setup" id="onboard" hidden>
+    <div class="inner">
+      <h2>Velkommen 🛒</h2>
+      <p>Opret din første indkøbsliste – eller tilslut dig en, nogen har delt med dig.</p>
+      <button class="newlistbtn" id="obCreate">＋ Opret liste</button>
+      <p style="margin-top: 26px;">Har du et invitations-link eller en kode?</p>
+      <input id="obInput" class="winput" placeholder="Indsæt link eller kode…" autocomplete="off">
+      <button class="newlistbtn" id="obJoin" style="margin-top: 10px;">Tilslut liste</button>
     </div>
   </div>
 
@@ -362,6 +376,8 @@
   /* ---------------- APP ---------------- */
   async function boot(user) {
     app.hidden = false; bar.hidden = false;
+    const myEmail = user.email || "";
+    let membersByList = {}; // { list_id: [email, ...] }
 
     const list = $("list"), empty = $("empty"), count = $("count"),
           clearBtn = $("clearbtn"), form = $("form"), input = $("input"),
@@ -404,6 +420,23 @@
         saveMembers(ids); saveNames(names);
       } catch (_) { /* offline: behold cache */ }
     }
+    // Gem min e-mail på mine medlemskaber, så andre kan se hvem listen deles med
+    async function setMyEmail() {
+      if (!myEmail) return;
+      try { await supa.from("list_members").update({ email: myEmail }).eq("user_id", uid); } catch (_) {}
+    }
+    // Hent alle medlemmer (e-mails) for mine lister
+    async function loadMembers() {
+      const ids = getMembers();
+      if (!ids.length) { membersByList = {}; return; }
+      try {
+        const { data, error } = await supa.from("list_members").select("list_id,email").in("list_id", ids);
+        if (error) throw error;
+        const map = {};
+        (data || []).forEach(r => { (map[r.list_id] = map[r.list_id] || []).push(r.email || ""); });
+        membersByList = map;
+      } catch (_) { /* e-mail-kolonne mangler endnu, eller offline */ }
+    }
     async function createList(name) {
       const id = crypto.randomUUID();
       let r = await supa.from("lists").insert({ id, name }); if (r.error) throw r.error;
@@ -411,15 +444,22 @@
       setNameCache(id, name); saveMembers([...getMembers(), id]);
       return id;
     }
-    // Start-liste med fast id pr. bruger -> kan ikke blive til to ved samtidige opstarter
-    async function ensureDefaultList() {
-      const id = "u_" + uid;
-      try {
-        await supa.from("lists").insert({ id, name: "Indkøb" });            // konflikt ignoreres hvis den findes
-        await supa.from("list_members").insert({ list_id: id, user_id: uid });
-      } catch (_) {}
-      setNameCache(id, "Indkøb"); saveMembers([...getMembers(), id]);
-      return id;
+    // Velkomst: bruger uden lister opretter eller tilslutter sin første liste
+    function showOnboarding() {
+      app.hidden = true; bar.hidden = true;
+      $("onboard").hidden = false;
+      $("obCreate").onclick = async () => {
+        const name = (window.prompt("Navn på listen?", "Indkøb") || "").trim();
+        if (!name) return;
+        try { switchTo(await createList(name)); } catch (_) { alert("Kunne ikke oprette – tjek din forbindelse."); }
+      };
+      const join = async () => {
+        const id = parseListId($("obInput").value);
+        if (!id) { $("obInput").focus(); return; }
+        try { await joinServer(id); switchTo(id); } catch (_) { alert("Kunne ikke tilslutte – tjek linket/koden."); }
+      };
+      $("obJoin").onclick = join;
+      $("obInput").onkeydown = e => { if (e.key === "Enter") join(); };
     }
     async function joinServer(id) {
       const r = await supa.from("list_members").insert({ list_id: id, user_id: uid });
@@ -432,6 +472,7 @@
     /* --- Bestem aktuel liste --- */
     await claimLocalLists();
     await loadMyLists();
+    setMyEmail();
 
     const joinId = parseListId(new URLSearchParams(location.search).get("join") || "");
     if (joinId) {
@@ -442,7 +483,7 @@
 
     let listId = localStorage.getItem("indkob.lastList");
     if (!getMembers().includes(listId)) listId = getMembers()[0] || null;
-    if (!listId) { listId = await ensureDefaultList(); }
+    if (!listId) { showOnboarding(); return; }
     localStorage.setItem("indkob.lastList", listId);
 
     const cacheKey = () => "indkob.items." + listId;
@@ -549,7 +590,15 @@
       for (const id of getMembers()) {
         const li = document.createElement("li");
         li.className = "listrow" + (id === listId ? " current" : "");
-        const name = document.createElement("button"); name.className = "lname"; name.textContent = names[id] || "Indkøb";
+        const name = document.createElement("button"); name.className = "lname";
+        const nm = document.createElement("span"); nm.className = "ln-name"; nm.textContent = names[id] || "Indkøb";
+        name.appendChild(nm);
+        const others = (membersByList[id] || []).filter(e => e && e !== myEmail);
+        if (others.length) {
+          const sub = document.createElement("span"); sub.className = "ln-sub";
+          sub.textContent = "Delt med " + others.map(e => e.split("@")[0]).join(", ");
+          name.appendChild(sub);
+        }
         name.onclick = () => { if (id !== listId) switchTo(id); else closeSheet(); };
         const ren = document.createElement("button"); ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
         ren.onclick = e => { e.stopPropagation(); renameList(id); };
@@ -558,7 +607,7 @@
         li.append(name, ren, del); ul.append(li);
       }
     }
-    async function refreshLists() { await loadMyLists(); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
+    async function refreshLists() { await loadMyLists(); await loadMembers(); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
     const openSheet = () => { renderLists(); $("listsSheet").hidden = false; refreshLists(); };
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
