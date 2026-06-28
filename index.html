@@ -146,6 +146,10 @@
   .linkbtn { display: block; width: 100%; margin-top: 12px; background: none; border: 0; color: var(--muted); font-size: 14px; text-decoration: underline; cursor: pointer; }
   .winput { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); outline: none; }
   .winput:focus { border-color: var(--accent); }
+  .copyrow { display: flex; gap: 8px; align-items: stretch; margin-top: 12px; }
+  .copyrow .winput { flex: 1; min-width: 0; }
+  .copybtn { flex: none; background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 0 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .copybtn.copied { background: var(--ok); }
 
   .sheetfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   .who { flex: 1 1 100%; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -240,6 +244,22 @@
       <button class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
       <button class="linkbtn" id="magicBtn">Send mig et login-link i stedet</button>
       <p id="authMsg" class="authmsg"></p>
+    </div>
+  </div>
+
+  <!-- Del listen (kopiér link) -->
+  <div class="sheet" id="shareSheet" hidden>
+    <div class="backdrop" id="shareBackdrop"></div>
+    <div class="sheetcard">
+      <div class="sheethead">
+        <h2>Del listen</h2>
+        <button class="iconbtn" id="shareClose" aria-label="Luk">×</button>
+      </div>
+      <p class="authintro">Send dette link til den, du vil dele listen med:</p>
+      <div class="copyrow">
+        <input id="shareUrl" class="winput" readonly>
+        <button id="copyBtn" class="copybtn">Kopiér</button>
+      </div>
     </div>
   </div>
 
@@ -800,6 +820,21 @@
     /* --- UI-wiring --- */
     form.onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t) return; addItem(t); input.value = ""; };
     clearBtn.onclick = clearDone;
+    function showShare(url) {
+      $("shareUrl").value = url;
+      const copy = $("copyBtn");
+      copy.textContent = "Kopiér"; copy.classList.remove("copied");
+      copy.onclick = async () => {
+        let ok = false;
+        try { await navigator.clipboard.writeText(url); ok = true; } catch (_) {}
+        if (!ok) { try { const i = $("shareUrl"); i.focus(); i.setSelectionRange(0, url.length); ok = document.execCommand("copy"); } catch (_) {} }
+        if (ok) { copy.textContent = "Kopieret!"; copy.classList.add("copied"); }
+        else { $("shareUrl").focus(); $("shareUrl").select(); }
+      };
+      $("shareClose").onclick = () => { $("shareSheet").hidden = true; };
+      $("shareBackdrop").onclick = () => { $("shareSheet").hidden = true; };
+      $("shareSheet").hidden = false;
+    }
     $("invite").onclick = async () => {
       const who = (window.prompt("Hvem deler du listen med? Skriv deres e-mail (eller lad feltet stå tomt for bare at kopiere linket):", "") || "").trim().toLowerCase();
       if (who) {
@@ -809,9 +844,7 @@
       }
       const url = inviteLink();
       if (navigator.share) { try { await navigator.share({ title: "Indkøbsliste", text: "Kom med på vores indkøbsliste", url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
-      try { await navigator.clipboard.writeText(url); showToast(who ? ("Invitation registreret – send linket til " + who.split("@")[0]) : "Link kopieret – send det til familien"); return; } catch (_) {}
-      try { const ta = document.createElement("textarea"); ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); const ok = document.execCommand("copy"); ta.remove(); if (ok) { showToast("Link kopieret – send det til familien"); return; } } catch (_) {}
-      window.prompt("Kopiér linket og send det til familien:", url);
+      showShare(url);
     };
     $("title").onclick = openSheet;
     $("closeSheet").onclick = closeSheet;
