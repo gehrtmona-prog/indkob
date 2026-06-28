@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fafafa">
+<title>Indkøb</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Indkøb">
+
+<style>
+  :root {
+    --bg: #fafafa; --card: #ffffff; --text: #1a1a1a; --muted: #9a9a9a;
+    --line: #ececec; --accent: #1a1a1a; --done: #c4c4c4; --ok: #34c759; --warn: #ff9500;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131313; --card: #1c1c1c; --text: #f2f2f2; --muted: #777;
+      --line: #2a2a2a; --accent: #f2f2f2; --done: #555;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 28px 20px 130px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.5px; }
+  .actions { display: flex; gap: 6px; }
+  .iconbtn {
+    background: none; border: 0; color: var(--text); cursor: pointer;
+    width: 40px; height: 40px; border-radius: 12px; font-size: 19px; transition: .12s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .iconbtn:hover { background: var(--line); }
+  .iconbtn:active { transform: scale(.9); }
+
+  .status { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); margin-bottom: 22px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .count { margin-left: auto; }
+
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex; align-items: center; gap: 14px; padding: 14px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  li.appear { animation: in .16s ease; }
+  @keyframes in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+  .box {
+    width: 22px; height: 22px; flex: none; border: 1.8px solid var(--muted);
+    border-radius: 50%; cursor: pointer; transition: .15s; position: relative;
+  }
+  .box:hover { border-color: var(--accent); }
+  li.done .box { background: var(--done); border-color: var(--done); }
+  li.done .box::after {
+    content: ""; position: absolute; left: 7px; top: 3px; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  .label { flex: 1; font-size: 17px; word-break: break-word; }
+  li.done .label { color: var(--done); text-decoration: line-through; }
+  .del {
+    background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer;
+    padding: 0 6px; line-height: 1; opacity: 0; transition: .15s;
+  }
+  li:hover .del { opacity: 1; }
+  @media (hover: none) { .del { opacity: .5; } }
+
+  .empty { text-align: center; color: var(--muted); padding: 56px 0; font-size: 15px; }
+  .clear {
+    display: block; margin: 22px auto 0; background: none; border: 0; color: var(--muted);
+    font-size: 13px; cursor: pointer; text-decoration: underline;
+  }
+
+  .barwrap {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to top, var(--bg) 65%, transparent);
+    padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  }
+  form {
+    max-width: 520px; margin: 0 auto; display: flex; gap: 10px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 16px; padding: 6px 6px 6px 18px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.06);
+  }
+  input { flex: 1; border: 0; background: none; color: var(--text); font-size: 17px; padding: 12px 0; outline: none; }
+  .add {
+    flex: none; width: 44px; height: 44px; border: 0; border-radius: 12px;
+    background: var(--accent); color: var(--bg); font-size: 24px; cursor: pointer; transition: .12s;
+  }
+  .add:active { transform: scale(.92); }
+
+  /* Toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%) translateY(20px);
+    background: var(--accent); color: var(--bg); padding: 10px 18px; border-radius: 999px;
+    font-size: 14px; opacity: 0; pointer-events: none; transition: .25s; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Titel-knap (skifter liste) */
+  .title {
+    background: none; border: 0; color: var(--text); font-size: 26px; font-weight: 600;
+    letter-spacing: -0.5px; cursor: pointer; padding: 0; display: flex; align-items: center;
+    gap: 7px; text-align: left; max-width: 78%;
+  }
+  #titleName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .title .chev { font-size: 13px; color: var(--muted); flex: none; }
+  .title:active { opacity: .6; }
+
+  /* Liste-oversigt (bottom sheet) */
+  .sheet { position: fixed; inset: 0; z-index: 80; display: flex; align-items: flex-end; justify-content: center; }
+  @media (min-width: 560px) { .sheet { align-items: center; } }
+  .sheet .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.4); }
+  .sheetcard {
+    position: relative; background: var(--card); width: 100%; max-width: 520px;
+    border-radius: 20px 20px 0 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 40px rgba(0,0,0,.2); animation: up .2s ease;
+  }
+  @media (min-width: 560px) { .sheetcard { border-radius: 20px; } }
+  @keyframes up { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .sheethead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .sheethead h2 { font-size: 18px; margin: 0; }
+  .lists { list-style: none; margin: 0; padding: 0; }
+  .listrow { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
+  .lname { flex: 1; background: none; border: 0; color: var(--text); font-size: 17px; text-align: left; padding: 14px 2px; cursor: pointer; }
+  .listrow.current .lname { font-weight: 600; }
+  .listrow.current .lname::after { content: " ✓"; color: var(--ok); }
+  .rowbtn { background: none; border: 0; color: var(--muted); font-size: 17px; cursor: pointer; padding: 8px; border-radius: 8px; }
+  .rowbtn:hover { background: var(--line); color: var(--text); }
+  .newlistbtn { width: 100%; margin-top: 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 13px; font-size: 16px; cursor: pointer; }
+  .newlistbtn:active { transform: scale(.98); }
+
+  /* Setup overlay */
+  .setup {
+    position: fixed; inset: 0; background: var(--bg); z-index: 100; overflow-y: auto;
+    padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
+  }
+  .setup .inner { max-width: 540px; margin: 0 auto; }
+  .setup h2 { font-size: 22px; margin: 0 0 8px; }
+  .setup p { color: var(--muted); font-size: 15px; }
+  .setup ol { padding-left: 20px; line-height: 1.7; }
+  .setup code { background: var(--line); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }
+  .setup pre { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; overflow-x: auto; font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <div class="wrap" id="app" hidden>
+    <header>
+      <button class="title" id="title" aria-label="Skift liste"><span id="titleName">Indkøb</span> <span class="chev">▾</span></button>
+      <div class="actions">
+        <button class="iconbtn" id="invite" title="Inviter familie" aria-label="Inviter">⤴</button>
+        <button class="iconbtn" id="newlist" title="Ny liste" aria-label="Ny liste">＋</button>
+      </div>
+    </header>
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="statustext">Forbinder…</span>
+      <span class="count" id="count"></span>
+    </div>
+
+    <ul id="list"></ul>
+    <div class="empty" id="empty" hidden>Din liste er tom 🛒</div>
+    <button class="clear" id="clearbtn" hidden>Ryd afkrydsede</button>
+  </div>
+
+  <div class="barwrap" id="barwrap" hidden>
+    <form id="form">
+      <input id="input" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done">
+      <button class="add" type="submit" aria-label="Tilføj">+</button>
+    </form>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Oversigt over dine lister -->
+  <div class="sheet" id="listsSheet" hidden>
+    <div class="backdrop" id="sheetBackdrop"></div>
+    <div class="sheetcard">
+      <div class="sheethead">
+        <h2>Mine lister</h2>
+        <button class="iconbtn" id="closeSheet" aria-label="Luk">×</button>
+      </div>
+      <ul class="lists" id="listsUl"></ul>
+      <button class="newlistbtn" id="newInSheet">＋ Ny liste</button>
+    </div>
+  </div>
+
+  <!-- Vises kun hvis Supabase ikke er konfigureret -->
+  <div class="setup" id="setupOverlay" hidden>
+    <div class="inner">
+      <h2>Næsten klar 🛠️</h2>
+      <p>Appen mangler bare forbindelse til din gratis Supabase-database. Følg trinene i <code>SETUP.md</code>, og indsæt derefter dine to nøgler øverst i <code>index.html</code> (i feltet <code>CONFIG</code>).</p>
+      <ol>
+        <li>Opret gratis projekt på <strong>supabase.com</strong></li>
+        <li>Kør opsætnings-SQL'en fra <code>SETUP.md</code></li>
+        <li>Kopiér <strong>Project URL</strong> og <strong>anon key</strong> ind i konfigurationen</li>
+      </ol>
+      <p>Så er du klar til at synkronisere med familien.</p>
+    </div>
+  </div>
+
+<script type="module">
+  /* ===================== CONFIG ===================== */
+  /* Indsæt dine egne værdier fra Supabase (Settings → API). */
+  const SUPABASE_URL = "https://bmcopzegsukcbfissfpy.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_Aeynqr3uG3J1FmRqxktkGg_uI5uTnZb";
+  /* ================================================== */
+
+  const configured = !SUPABASE_URL.startsWith("DIN_") && !SUPABASE_ANON_KEY.startsWith("DIN_");
+
+  const $ = id => document.getElementById(id);
+  const app = $("app"), bar = $("barwrap");
+
+  if (!configured) {
+    $("setupOverlay").hidden = false;
+  } else {
+    app.hidden = false; bar.hidden = false;
+    boot();
+  }
+
+  async function boot() {
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { realtime: { params: { eventsPerSecond: 5 } } });
+
+    /* ---- Liste-ID (deles via link-hash) ---- */
+    function getListId() {
+      let id = location.hash.slice(1) || localStorage.getItem("indkob.lastList") || crypto.randomUUID();
+      location.hash = id;
+      localStorage.setItem("indkob.lastList", id);
+      return id;
+    }
+    const hadHash = !!location.hash.slice(1);
+    let listId = getListId();
+    const cacheKey = () => "indkob.items." + listId;
+
+    // --- Liste-oversigt (gemmes lokalt på denne enhed) ---
+    const LISTS_KEY = "indkob.lists";
+    const getLists = () => JSON.parse(localStorage.getItem(LISTS_KEY) || "[]");
+    const saveLists = a => localStorage.setItem(LISTS_KEY, JSON.stringify(a));
+    const listName = id => { const l = getLists().find(x => x.id === id); return l ? l.name : "Indkøb"; };
+    if (!getLists().some(l => l.id === listId)) {
+      const a = getLists();
+      a.push({ id: listId, name: hadHash ? "Delt liste" : (a.length ? "Indkøbsliste" : "Indkøb") });
+      saveLists(a);
+    }
+
+    /* ---- Tilstand ---- */
+    let items = JSON.parse(localStorage.getItem(cacheKey()) || "[]");
+    let outbox = JSON.parse(localStorage.getItem("indkob.outbox") || "[]");
+
+    const list = $("list"), empty = $("empty"), count = $("count"),
+          clearBtn = $("clearbtn"), form = $("form"), input = $("input"),
+          dot = $("dot"), statustext = $("statustext"), toast = $("toast");
+
+    const saveCache = () => localStorage.setItem(cacheKey(), JSON.stringify(items));
+    const saveOutbox = () => localStorage.setItem("indkob.outbox", JSON.stringify(outbox));
+
+    function setStatus(state, text) {
+      dot.className = "dot" + (state === "ok" ? " ok" : state === "warn" ? " warn" : "");
+      statustext.textContent = text;
+    }
+    function showToast(msg) {
+      toast.textContent = msg; toast.classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+
+    const nodes = new Map(); // id -> li-element (genbruges på tværs af gentegninger)
+
+    function makeLi(id) {
+      const li = document.createElement("li");
+      const box = document.createElement("div");
+      box.className = "box";
+      box.onclick = () => toggle(id);
+
+      const label = document.createElement("span");
+      label.className = "label";
+
+      const del = document.createElement("button");
+      del.className = "del"; del.textContent = "×";
+      del.onclick = () => remove(id);
+
+      li.append(box, label, del);
+      li._label = label;
+      return li;
+    }
+
+    function render(opt = {}) {
+      const sorted = [...items].sort((a, b) =>
+        (a.done - b.done) || (new Date(a.created_at) - new Date(b.created_at)));
+      const ids = new Set(items.map(i => i.id));
+
+      // Fjern varer der ikke længere findes
+      for (const [id, li] of nodes) {
+        if (!ids.has(id)) { li.remove(); nodes.delete(id); }
+      }
+
+      // Opret/opdatér + sæt i rigtig rækkefølge
+      sorted.forEach((it, idx) => {
+        let li = nodes.get(it.id);
+        if (!li) {
+          li = makeLi(it.id);
+          if (opt.appearId === it.id) li.classList.add("appear");
+          nodes.set(it.id, li);
+        }
+        if (li._label.textContent !== it.text) li._label.textContent = it.text;
+        li.classList.toggle("done", it.done);
+        if (list.children[idx] !== li) list.insertBefore(li, list.children[idx] || null);
+      });
+
+      const left = items.filter(i => !i.done).length;
+      empty.hidden = items.length > 0;
+      count.textContent = items.length ? `${left} tilbage` : "";
+      clearBtn.hidden = !items.some(i => i.done);
+    }
+
+    /* ---- Skrivninger (optimistisk + outbox-fallback) ---- */
+    async function run(op) {
+      try {
+        await op.exec(supa);
+        return true;
+      } catch (e) {
+        outbox.push(op.queued); saveOutbox();
+        setStatus("warn", "Offline – gemmes når der er net");
+        return false;
+      }
+    }
+
+    function addItem(text) {
+      const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, created_at: new Date().toISOString() };
+      items.push(item); saveCache(); render({ appearId: item.id });
+      run({
+        queued: { type: "insert", row: item },
+        exec: s => s.from("items").insert(item).then(r => { if (r.error) throw r.error; })
+      });
+    }
+    function toggle(id) {
+      const it = items.find(i => i.id === id);
+      if (!it) return;
+      it.done = !it.done; saveCache(); render();
+      run({
+        queued: { type: "update", id: it.id, done: it.done },
+        exec: s => s.from("items").update({ done: it.done }).eq("id", it.id).then(r => { if (r.error) throw r.error; })
+      });
+    }
+    function remove(id) {
+      const it = items.find(i => i.id === id);
+      if (!it) return;
+      items = items.filter(x => x.id !== id); saveCache(); render();
+      run({
+        queued: { type: "delete", id },
+        exec: s => s.from("items").delete().eq("id", id).then(r => { if (r.error) throw r.error; })
+      });
+    }
+    function clearDone() {
+      const ids = items.filter(i => i.done).map(i => i.id);
+      if (!ids.length) return;
+      items = items.filter(i => !i.done); saveCache(); render();
+      run({
+        queued: { type: "deleteMany", ids },
+        exec: s => s.from("items").delete().in("id", ids).then(r => { if (r.error) throw r.error; })
+      });
+    }
+
+    async function flushOutbox() {
+      if (!outbox.length) return;
+      const pending = outbox; outbox = []; saveOutbox();
+      for (const q of pending) {
+        try {
+          if (q.type === "insert") { const r = await supa.from("items").insert(q.row); if (r.error) throw r.error; }
+          else if (q.type === "update") { const r = await supa.from("items").update({ done: q.done }).eq("id", q.id); if (r.error) throw r.error; }
+          else if (q.type === "delete") { const r = await supa.from("items").delete().eq("id", q.id); if (r.error) throw r.error; }
+          else if (q.type === "deleteMany") { const r = await supa.from("items").delete().in("id", q.ids); if (r.error) throw r.error; }
+        } catch (e) { outbox.push(q); }
+      }
+      saveOutbox();
+    }
+
+    /* ---- Hent fra server ---- */
+    async function fetchAll() {
+      const { data, error } = await supa.from("items").select("*").eq("list_id", listId).order("created_at");
+      if (error) { setStatus("warn", "Kunne ikke hente – viser gemt liste"); return; }
+      items = data; saveCache(); render();
+      setStatus("ok", "Synkroniseret");
+    }
+
+    /* ---- Realtime ---- */
+    function subscribe() {
+      supa.channel("list:" + listId)
+        .on("postgres_changes",
+          { event: "*", schema: "public", table: "items", filter: "list_id=eq." + listId },
+          payload => {
+            const { eventType, new: n, old: o } = payload;
+            let changed = false, appearId = null;
+            if (eventType === "INSERT") {
+              if (!items.some(i => i.id === n.id)) { items.push(n); changed = true; appearId = n.id; }
+            } else if (eventType === "UPDATE") {
+              const cur = items.find(i => i.id === n.id);
+              if (!cur || cur.done !== n.done || cur.text !== n.text) {
+                items = items.map(i => i.id === n.id ? n : i); changed = true;
+              }
+            } else if (eventType === "DELETE") {
+              if (items.some(i => i.id === o.id)) { items = items.filter(i => i.id !== o.id); changed = true; }
+            }
+            if (changed) { saveCache(); render(appearId ? { appearId } : {}); }
+          })
+        .subscribe(status => {
+          if (status === "SUBSCRIBED") { setStatus("ok", "Synkroniseret"); flushOutbox().then(fetchAll); }
+          else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setStatus("warn", "Genopretter forbindelse…");
+        });
+    }
+
+    /* ---- UI-handlinger ---- */
+    form.onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t) return; addItem(t); input.value = ""; };
+    clearBtn.onclick = clearDone;
+
+    $("invite").onclick = async () => {
+      const url = location.href;
+
+      // 1) Mobilens indbyggede deling
+      if (navigator.share) {
+        try { await navigator.share({ title: "Indkøbsliste", text: "Vores fælles indkøbsliste", url }); return; }
+        catch (e) { if (e && e.name === "AbortError") return; /* ellers prøv kopiering */ }
+      }
+      // 2) Kopiér til udklipsholder
+      try { await navigator.clipboard.writeText(url); showToast("Link kopieret – send det til familien"); return; }
+      catch (_) { /* falder igennem */ }
+      // 3) Ældre kopierings-metode
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        const ok = document.execCommand("copy"); ta.remove();
+        if (ok) { showToast("Link kopieret – send det til familien"); return; }
+      } catch (_) { /* falder igennem */ }
+      // 4) Sidste udvej: vis linket så det kan kopieres manuelt
+      window.prompt("Kopiér linket og send det til familien:", url);
+    };
+
+    // --- Liste-oversigt UI ---
+    const updateTitle = () => { $("titleName").textContent = listName(listId); };
+
+    function renderLists() {
+      const ul = $("listsUl"); ul.innerHTML = "";
+      for (const l of getLists()) {
+        const li = document.createElement("li");
+        li.className = "listrow" + (l.id === listId ? " current" : "");
+
+        const name = document.createElement("button");
+        name.className = "lname"; name.textContent = l.name;
+        name.onclick = () => { if (l.id !== listId) location.hash = l.id; else closeSheet(); };
+
+        const ren = document.createElement("button");
+        ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
+        ren.onclick = e => { e.stopPropagation(); renameList(l.id); };
+
+        const del = document.createElement("button");
+        del.className = "rowbtn"; del.textContent = "×"; del.title = "Slet liste";
+        del.onclick = e => { e.stopPropagation(); deleteList(l.id); };
+
+        li.append(name, ren, del);
+        ul.append(li);
+      }
+    }
+    const openSheet = () => { renderLists(); $("listsSheet").hidden = false; };
+    const closeSheet = () => { $("listsSheet").hidden = true; };
+
+    function newList() {
+      const name = window.prompt("Navn på den nye liste?", "Ny liste");
+      if (name === null) return;
+      const id = crypto.randomUUID();
+      const a = getLists(); a.push({ id, name: name.trim() || "Ny liste" }); saveLists(a);
+      location.hash = id; // udløser genindlæsning af den nye liste
+    }
+    function renameList(id) {
+      const cur = listName(id);
+      const name = window.prompt("Nyt navn til listen:", cur);
+      if (name === null) return;
+      saveLists(getLists().map(l => l.id === id ? { ...l, name: name.trim() || cur } : l));
+      renderLists(); updateTitle();
+    }
+    async function deleteList(id) {
+      const name = listName(id);
+      if (!confirm(`Slet listen "${name}"?\n\nAlle varer på listen slettes – også for de andre, der deler den. Dette kan ikke fortrydes.`)) return;
+
+      // Slet varerne i databasen
+      try { const r = await supa.from("items").delete().eq("list_id", id); if (r.error) throw r.error; }
+      catch (_) { alert("Kunne ikke slette lige nu – tjek din internetforbindelse og prøv igen."); return; }
+
+      // Fjern fra oversigt + lokal cache
+      saveLists(getLists().filter(l => l.id !== id));
+      localStorage.removeItem("indkob.items." + id);
+
+      if (id === listId) {
+        // Vi slettede den aktive liste – hop til en anden (eller opret en frisk tom)
+        const rest = getLists();
+        if (rest.length) location.hash = rest[0].id;
+        else { const nid = crypto.randomUUID(); saveLists([{ id: nid, name: "Indkøb" }]); location.hash = nid; }
+        // hashchange udløser genindlæsning
+      } else {
+        renderLists();
+      }
+    }
+
+    $("title").onclick = openSheet;
+    $("closeSheet").onclick = closeSheet;
+    $("sheetBackdrop").onclick = closeSheet;
+    $("newInSheet").onclick = newList;
+    $("newlist").onclick = newList;
+    updateTitle();
+
+    window.addEventListener("hashchange", () => location.reload());
+    window.addEventListener("online", () => { setStatus("ok", "Online"); flushOutbox().then(fetchAll); });
+    window.addEventListener("offline", () => setStatus("warn", "Offline – gemmes lokalt"));
+
+    /* ---- Start ---- */
+    render();
+    setStatus("", "Forbinder…");
+    await fetchAll();
+    subscribe();
+  }
+
+  /* Service worker (gør den installerbar + offline) */
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+</script>
+</body>
+</html>
