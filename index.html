@@ -215,7 +215,7 @@
   <div class="setup" id="login" hidden>
     <div class="inner">
       <h2>Log ind 🛒</h2>
-      <p>Ny her? Skriv din e-mail og få et login-link – så oprettes din konto automatisk, og du er inde. Har du allerede valgt en adgangskode, kan du bruge den.</p>
+      <p>Skriv din e-mail og få et login-link. Er du ny, oprettes din konto automatisk. <strong>Du forbliver logget ind på denne enhed</strong> – du behøver ikke et nyt link hver gang. Har du valgt en adgangskode, kan du bruge den.</p>
       <form id="loginForm" autocomplete="on">
         <input id="email" class="winput" type="email" name="username" autocomplete="username" placeholder="din@email.dk" inputmode="email">
         <button type="button" class="newlistbtn" id="magicBtn">Send mig et login-link</button>
@@ -239,6 +239,17 @@
       <p style="margin-top: 26px;">Har du et invitations-link eller en kode?</p>
       <input id="obInput" class="winput" placeholder="Indsæt link eller kode…" autocomplete="off">
       <button class="newlistbtn" id="obJoin" style="margin-top: 10px;">Tilslut liste</button>
+    </div>
+  </div>
+
+  <!-- Engangs-tip efter login -->
+  <div class="setup" id="welcomeTip" hidden>
+    <div class="inner">
+      <h2>Du er logget ind 🎉</h2>
+      <p>Du forbliver logget ind på denne enhed – du behøver <strong>ikke</strong> et nyt link hver gang. Næste gang åbner du bare appen.</p>
+      <p>Vil du kunne logge ind med en <strong>adgangskode</strong> i stedet for et link? Det er valgfrit – du kan altid gøre det senere under <em>Mine lister → Skift adgangskode</em>.</p>
+      <button class="newlistbtn" id="tipSetPw">Vælg en adgangskode</button>
+      <button class="linkbtn" id="tipLater">Ikke nu</button>
     </div>
   </div>
 
@@ -700,6 +711,13 @@
     setStatus("", "Forbinder…");
     await fetchAll();
     subscribe();
+
+    // Engangs-tip efter login: forklarer at man forbliver logget ind + tilbyder adgangskode
+    if (!localStorage.getItem("indkob.welcomed")) {
+      $("welcomeTip").hidden = false;
+      $("tipLater").onclick = () => { localStorage.setItem("indkob.welcomed", "1"); $("welcomeTip").hidden = true; };
+      $("tipSetPw").onclick = () => { localStorage.setItem("indkob.welcomed", "1"); $("welcomeTip").hidden = true; showSetPassword(false); };
+    }
   }
 
   main();
