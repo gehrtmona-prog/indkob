@@ -214,14 +214,16 @@
     <div class="inner">
       <h2>Log ind 🛒</h2>
       <p>Ny her? Skriv din e-mail og få et login-link – så oprettes din konto automatisk, og du er inde. Har du allerede valgt en adgangskode, kan du bruge den.</p>
-      <input id="email" class="winput" type="email" placeholder="din@email.dk" autocomplete="email" inputmode="email">
-      <button class="newlistbtn" id="magicBtn">Send mig et login-link</button>
-      <button class="linkbtn" id="togglePw">Brug adgangskode i stedet</button>
-      <div id="pwArea" hidden>
-        <input id="password" class="winput authrow" type="password" placeholder="Adgangskode" autocomplete="current-password">
-        <button class="newlistbtn" id="loginBtn">Log ind</button>
-        <button class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
-      </div>
+      <form id="loginForm" autocomplete="on">
+        <input id="email" class="winput" type="email" name="username" autocomplete="username" placeholder="din@email.dk" inputmode="email">
+        <button type="button" class="newlistbtn" id="magicBtn">Send mig et login-link</button>
+        <button type="button" class="linkbtn" id="togglePw">Brug adgangskode i stedet</button>
+        <div id="pwArea" hidden>
+          <input id="password" class="winput authrow" type="password" name="password" autocomplete="current-password" placeholder="Adgangskode">
+          <button type="submit" class="newlistbtn" id="loginBtn">Log ind</button>
+          <button type="button" class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
+        </div>
+      </form>
       <p id="authMsg" class="authmsg"></p>
     </div>
   </div>
@@ -231,9 +233,12 @@
     <div class="inner">
       <h2>Vælg ny adgangskode 🔑</h2>
       <p>Skriv din nye adgangskode for at fuldføre nulstillingen.</p>
-      <input id="newpw" class="winput" type="password" placeholder="Ny adgangskode (min. 6 tegn)" autocomplete="new-password">
-      <button class="newlistbtn" id="setpwBtn">Gem og log ind</button>
-      <button class="linkbtn" id="setpwCancel">Annullér</button>
+      <form id="setpwForm" autocomplete="on">
+        <input id="setpwUser" type="email" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute; left:-9999px; width:1px; height:1px; opacity:0;">
+        <input id="newpw" class="winput" type="password" name="new-password" autocomplete="new-password" placeholder="Ny adgangskode (min. 6 tegn)">
+        <button type="submit" class="newlistbtn" id="setpwBtn">Gem og log ind</button>
+        <button type="button" class="linkbtn" id="setpwCancel">Annullér</button>
+      </form>
       <p id="setpwMsg" class="authmsg"></p>
     </div>
   </div>
@@ -310,7 +315,8 @@
       const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
       msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din indbakke – vi har sendt dig et login-link ✉️", !!error);
     };
-    $("loginBtn").onclick = async () => {
+    $("loginForm").onsubmit = async e => {
+      e.preventDefault();
       const email = $("email").value.trim(), password = $("password").value;
       if (!email || !password) { msg("Skriv e-mail og adgangskode.", true); return; }
       msg("Logger ind…");
@@ -324,15 +330,17 @@
       const { error } = await supa.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
       msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din mail – klik linket for at vælge en ny adgangskode ✉️", !!error);
     };
-    $("email").onkeydown = e => { if (e.key === "Enter") $("magicBtn").click(); };
+    $("email").onkeydown = e => { if (e.key === "Enter" && $("pwArea").hidden) { e.preventDefault(); $("magicBtn").click(); } };
   }
 
   /* ---------------- NY ADGANGSKODE (efter nulstilling) ---------------- */
-  function showSetPassword() {
+  async function showSetPassword() {
     app.hidden = true; bar.hidden = true;
     $("login").hidden = true; $("setpw").hidden = false;
+    try { const { data: { user } } = await supa.auth.getUser(); if (user) $("setpwUser").value = user.email || ""; } catch (_) {}
     const msg = (t, err) => { const m = $("setpwMsg"); m.textContent = t || ""; m.style.color = err ? "var(--warn)" : "var(--muted)"; };
-    $("setpwBtn").onclick = async () => {
+    $("setpwForm").onsubmit = async e => {
+      e.preventDefault();
       const pw = $("newpw").value;
       if (!pw || pw.length < 6) { msg("Adgangskoden skal være mindst 6 tegn.", true); return; }
       msg("Gemmer…");
@@ -341,7 +349,6 @@
       location.assign(location.pathname); // genindlæser – nu logget ind med ny kode
     };
     $("setpwCancel").onclick = async () => { try { await supa.auth.signOut(); } catch (_) {} location.assign(location.pathname); };
-    $("newpw").onkeydown = e => { if (e.key === "Enter") $("setpwBtn").click(); };
   }
 
   /* ---------------- APP ---------------- */
