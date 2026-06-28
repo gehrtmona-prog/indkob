@@ -213,14 +213,13 @@
   <div class="setup" id="login" hidden>
     <div class="inner">
       <h2>Log ind 🛒</h2>
-      <p>Skriv din e-mail, så sender vi dig et login-link. Eller log ind med en adgangskode.</p>
+      <p>Ny her? Skriv din e-mail og få et login-link – så oprettes din konto automatisk, og du er inde. Har du allerede valgt en adgangskode, kan du bruge den.</p>
       <input id="email" class="winput" type="email" placeholder="din@email.dk" autocomplete="email" inputmode="email">
       <button class="newlistbtn" id="magicBtn">Send mig et login-link</button>
       <button class="linkbtn" id="togglePw">Brug adgangskode i stedet</button>
       <div id="pwArea" hidden>
         <input id="password" class="winput authrow" type="password" placeholder="Adgangskode" autocomplete="current-password">
         <button class="newlistbtn" id="loginBtn">Log ind</button>
-        <button class="linkbtn" id="signupBtn">Opret ny konto med adgangskode</button>
         <button class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
       </div>
       <p id="authMsg" class="authmsg"></p>
@@ -317,15 +316,6 @@
       msg("Logger ind…");
       const { error } = await supa.auth.signInWithPassword({ email, password });
       if (error) msg("Forkert e-mail eller adgangskode. Glemt den? Tryk “Glemt adgangskode?” nedenfor – eller log ind med et link.", true); else location.reload();
-    };
-    $("signupBtn").onclick = async () => {
-      const email = $("email").value.trim(), password = $("password").value;
-      if (!email || !password) { msg("Skriv e-mail og vælg en adgangskode (min. 6 tegn).", true); return; }
-      msg("Opretter konto…");
-      const { data, error } = await supa.auth.signUp({ email, password });
-      if (error) msg(error.message, true);
-      else if (data.session) location.reload();
-      else msg("Konto oprettet! Tjek din e-mail for at bekræfte – log derefter ind.", false);
     };
     $("forgotBtn").onclick = async () => {
       const email = $("email").value.trim();
