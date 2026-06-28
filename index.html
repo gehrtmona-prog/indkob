@@ -241,15 +241,53 @@
     let listId = getListId();
     const cacheKey = () => "indkob.items." + listId;
 
-    // --- Liste-oversigt (gemmes lokalt på denne enhed) ---
-    const LISTS_KEY = "indkob.lists";
-    const getLists = () => JSON.parse(localStorage.getItem(LISTS_KEY) || "[]");
-    const saveLists = a => localStorage.setItem(LISTS_KEY, JSON.stringify(a));
-    const listName = id => { const l = getLists().find(x => x.id === id); return l ? l.name : "Indkøb"; };
-    if (!getLists().some(l => l.id === listId)) {
-      const a = getLists();
-      a.push({ id: listId, name: hadHash ? "Delt liste" : (a.length ? "Indkøbsliste" : "Indkøb") });
-      saveLists(a);
+    // --- Lister: medlemskab (lokalt) + navne (fælles via databasen, cachet lokalt) ---
+    const MEMBERS_KEY = "indkob.members"; // array af list-id'er denne enhed kender
+    const NAMES_KEY = "indkob.listnames"; // { id: navn } – cache så navne også vises offline
+
+    // Migrér fra den gamle struktur (array af {id,name}) hvis den findes
+    (function migrate() {
+      const old = localStorage.getItem("indkob.lists");
+      if (old && !localStorage.getItem(MEMBERS_KEY)) {
+        try {
+          const arr = JSON.parse(old);
+          localStorage.setItem(MEMBERS_KEY, JSON.stringify(arr.map(l => l.id)));
+          const names = {}; arr.forEach(l => { if (l.name) names[l.id] = l.name; });
+          localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+        } catch (_) {}
+      }
+    })();
+
+    const getMembers = () => JSON.parse(localStorage.getItem(MEMBERS_KEY) || "[]");
+    const saveMembers = a => localStorage.setItem(MEMBERS_KEY, JSON.stringify([...new Set(a)]));
+    const getNames = () => JSON.parse(localStorage.getItem(NAMES_KEY) || "{}");
+    const saveNames = o => localStorage.setItem(NAMES_KEY, JSON.stringify(o));
+    const listName = id => getNames()[id] || "Indkøb";
+    const setNameCache = (id, name) => { const o = getNames(); o[id] = name; saveNames(o); };
+
+    // Sørg for at den aktive liste er kendt og har et foreløbigt navn (erstattes af serverens navn)
+    if (!getMembers().includes(listId)) saveMembers([...getMembers(), listId]);
+    if (!getNames()[listId]) setNameCache(listId, hadHash ? "Delt liste" : (getMembers().length > 1 ? "Indkøbsliste" : "Indkøb"));
+
+    // Hent navne fra serveren + læg lokale lister op, der endnu ikke findes der
+    async function syncLists() {
+      const members = getMembers();
+      if (!members.length) return;
+      let rows;
+      try {
+        const r = await supa.from("lists").select("*").in("id", members);
+        if (r.error) throw r.error;
+        rows = r.data;
+      } catch (_) { return; } // offline: behold den lokale cache
+      const have = new Set(rows.map(r => r.id));
+      const names = getNames();
+      rows.forEach(r => { names[r.id] = r.name; });
+      saveNames(names);
+      for (const id of members.filter(m => !have.has(m))) {
+        try { await supa.from("lists").insert({ id, name: names[id] || "Indkøb" }); } catch (_) {}
+      }
+      updateTitle();
+      if (!$("listsSheet").hidden) renderLists();
     }
 
     /* ---- Tilstand ---- */
@@ -412,6 +450,15 @@
             }
             if (changed) { saveCache(); render(appearId ? { appearId } : {}); }
           })
+        .on("postgres_changes",
+          { event: "*", schema: "public", table: "lists", filter: "id=eq." + listId },
+          payload => {
+            const n = payload.new;
+            if (payload.eventType !== "DELETE" && n && n.name) {
+              setNameCache(n.id, n.name); updateTitle();
+              if (!$("listsSheet").hidden) renderLists();
+            }
+          })
         .subscribe(status => {
           if (status === "SUBSCRIBED") { setStatus("ok", "Synkroniseret"); flushOutbox().then(fetchAll); }
           else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setStatus("warn", "Genopretter forbindelse…");
@@ -450,61 +497,70 @@
 
     function renderLists() {
       const ul = $("listsUl"); ul.innerHTML = "";
-      for (const l of getLists()) {
+      const names = getNames();
+      for (const id of getMembers()) {
         const li = document.createElement("li");
-        li.className = "listrow" + (l.id === listId ? " current" : "");
+        li.className = "listrow" + (id === listId ? " current" : "");
 
         const name = document.createElement("button");
-        name.className = "lname"; name.textContent = l.name;
-        name.onclick = () => { if (l.id !== listId) location.hash = l.id; else closeSheet(); };
+        name.className = "lname"; name.textContent = names[id] || "Indkøb";
+        name.onclick = () => { if (id !== listId) location.hash = id; else closeSheet(); };
 
         const ren = document.createElement("button");
         ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
-        ren.onclick = e => { e.stopPropagation(); renameList(l.id); };
+        ren.onclick = e => { e.stopPropagation(); renameList(id); };
 
         const del = document.createElement("button");
         del.className = "rowbtn"; del.textContent = "×"; del.title = "Slet liste";
-        del.onclick = e => { e.stopPropagation(); deleteList(l.id); };
+        del.onclick = e => { e.stopPropagation(); deleteList(id); };
 
         li.append(name, ren, del);
         ul.append(li);
       }
     }
-    const openSheet = () => { renderLists(); $("listsSheet").hidden = false; };
+    const openSheet = () => { renderLists(); $("listsSheet").hidden = false; syncLists(); };
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
-    function newList() {
+    async function newList() {
       const name = window.prompt("Navn på den nye liste?", "Ny liste");
       if (name === null) return;
       const id = crypto.randomUUID();
-      const a = getLists(); a.push({ id, name: name.trim() || "Ny liste" }); saveLists(a);
+      const finalName = name.trim() || "Ny liste";
+      setNameCache(id, finalName);
+      saveMembers([...getMembers(), id]);
+      try { await supa.from("lists").insert({ id, name: finalName }); } catch (_) {}
       location.hash = id; // udløser genindlæsning af den nye liste
     }
-    function renameList(id) {
+    async function renameList(id) {
       const cur = listName(id);
       const name = window.prompt("Nyt navn til listen:", cur);
       if (name === null) return;
-      saveLists(getLists().map(l => l.id === id ? { ...l, name: name.trim() || cur } : l));
-      renderLists(); updateTitle();
+      const finalName = name.trim() || cur;
+      setNameCache(id, finalName); renderLists(); updateTitle();
+      try { const r = await supa.from("lists").update({ name: finalName }).eq("id", id); if (r.error) throw r.error; }
+      catch (_) { showToast("Navnet er gemt lokalt – synkroniseres når der er net"); }
     }
     async function deleteList(id) {
       const name = listName(id);
       if (!confirm(`Slet listen "${name}"?\n\nAlle varer på listen slettes – også for de andre, der deler den. Dette kan ikke fortrydes.`)) return;
 
-      // Slet varerne i databasen
-      try { const r = await supa.from("items").delete().eq("list_id", id); if (r.error) throw r.error; }
-      catch (_) { alert("Kunne ikke slette lige nu – tjek din internetforbindelse og prøv igen."); return; }
+      // Slet varer + selve listen i databasen
+      try {
+        let r = await supa.from("items").delete().eq("list_id", id); if (r.error) throw r.error;
+        r = await supa.from("lists").delete().eq("id", id); if (r.error) throw r.error;
+      } catch (_) { alert("Kunne ikke slette lige nu – tjek din internetforbindelse og prøv igen."); return; }
 
-      // Fjern fra oversigt + lokal cache
-      saveLists(getLists().filter(l => l.id !== id));
+      // Fjern fra medlemskab + lokal cache
+      saveMembers(getMembers().filter(x => x !== id));
+      const names = getNames(); delete names[id]; saveNames(names);
       localStorage.removeItem("indkob.items." + id);
 
       if (id === listId) {
         // Vi slettede den aktive liste – hop til en anden (eller opret en frisk tom)
-        const rest = getLists();
-        if (rest.length) location.hash = rest[0].id;
-        else { const nid = crypto.randomUUID(); saveLists([{ id: nid, name: "Indkøb" }]); location.hash = nid; }
-        // hashchange udløser genindlæsning
+        const rest = getMembers();
+        if (rest.length) location.hash = rest[0];
+        else { const nid = crypto.randomUUID(); saveMembers([nid]); setNameCache(nid, "Indkøb"); location.hash = nid; }
+        // hashchange udløser genindlæsning (og syncLists lægger den nye liste op)
       } else {
         renderLists();
       }
@@ -525,6 +581,7 @@
     render();
     setStatus("", "Forbinder…");
     await fetchAll();
+    syncLists();
     subscribe();
   }
 
