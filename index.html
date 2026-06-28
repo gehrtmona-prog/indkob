@@ -396,6 +396,16 @@
       setNameCache(id, name); saveMembers([...getMembers(), id]);
       return id;
     }
+    // Start-liste med fast id pr. bruger -> kan ikke blive til to ved samtidige opstarter
+    async function ensureDefaultList() {
+      const id = "u_" + uid;
+      try {
+        await supa.from("lists").insert({ id, name: "Indkøb" });            // konflikt ignoreres hvis den findes
+        await supa.from("list_members").insert({ list_id: id, user_id: uid });
+      } catch (_) {}
+      setNameCache(id, "Indkøb"); saveMembers([...getMembers(), id]);
+      return id;
+    }
     async function joinServer(id) {
       const r = await supa.from("list_members").insert({ list_id: id, user_id: uid });
       if (r.error && !String(r.error.message || "").includes("duplicate")) throw r.error;
@@ -417,10 +427,7 @@
 
     let listId = localStorage.getItem("indkob.lastList");
     if (!getMembers().includes(listId)) listId = getMembers()[0] || null;
-    if (!listId) {
-      try { listId = await createList("Indkøb"); }
-      catch (_) { setStatus("warn", "Ingen forbindelse – prøv igen senere"); return; }
-    }
+    if (!listId) { listId = await ensureDefaultList(); }
     localStorage.setItem("indkob.lastList", listId);
 
     const cacheKey = () => "indkob.items." + listId;
