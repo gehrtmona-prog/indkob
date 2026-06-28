@@ -307,7 +307,7 @@
       if (!email || !password) { msg("Skriv e-mail og adgangskode.", true); return; }
       msg("Logger ind…");
       const { error } = await supa.auth.signInWithPassword({ email, password });
-      if (error) msg("Forkert e-mail eller adgangskode.", true); else location.reload();
+      if (error) msg("Forkert e-mail eller adgangskode. Glemt den? Tryk “Glemt adgangskode?” nedenfor – eller log ind med et link.", true); else location.reload();
     };
     $("signupBtn").onclick = async () => {
       const email = $("email").value.trim(), password = $("password").value;
