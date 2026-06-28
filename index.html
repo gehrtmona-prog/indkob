@@ -220,6 +220,7 @@
         <input id="password" class="winput authrow" type="password" placeholder="Adgangskode" autocomplete="current-password">
         <button class="newlistbtn" id="loginBtn">Log ind</button>
         <button class="linkbtn" id="signupBtn">Opret ny konto med adgangskode</button>
+        <button class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
       </div>
       <p id="authMsg" class="authmsg"></p>
     </div>
@@ -269,6 +270,17 @@
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" },
       realtime: { params: { eventsPerSecond: 5 } }
     });
+    // Nulstilling af adgangskode: linket fra "Glemt adgangskode?" lander her
+    if (/type=recovery/.test(location.hash)) {
+      await supa.auth.getSession(); // lader recovery-sessionen blive etableret
+      const pw = window.prompt("Vælg en ny adgangskode (mindst 6 tegn):");
+      if (pw && pw.length >= 6) {
+        const { error } = await supa.auth.updateUser({ password: pw });
+        alert(error ? ("Kunne ikke opdatere: " + error.message) : "Din adgangskode er opdateret ✅");
+      }
+      location.assign(location.pathname);
+      return;
+    }
     const { data: { session } } = await supa.auth.getSession();
     if (session) { uid = session.user.id; boot(session.user); return; }
     // Sikkerhedsnet: hvis et login-link netop er ved at blive behandlet, fanger vi det her
@@ -305,6 +317,13 @@
       if (error) msg(error.message, true);
       else if (data.session) location.reload();
       else msg("Konto oprettet! Tjek din e-mail for at bekræfte – log derefter ind.", false);
+    };
+    $("forgotBtn").onclick = async () => {
+      const email = $("email").value.trim();
+      if (!email) { msg("Skriv din e-mail først.", true); return; }
+      msg("Sender nulstillings-link…");
+      const { error } = await supa.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din mail – klik linket for at vælge en ny adgangskode ✉️", !!error);
     };
     $("email").onkeydown = e => { if (e.key === "Enter") $("magicBtn").click(); };
   }
