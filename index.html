@@ -417,7 +417,8 @@
   async function boot(user) {
     app.hidden = false; bar.hidden = false;
     const myEmail = user.email || "";
-    let membersByList = {}; // { list_id: [email, ...] }
+    let membersByList = {}; // { list_id: [email, ...] } – nuværende medlemmer
+    let invitesByList = {}; // { list_id: [email, ...] } – afventende invitationer
 
     const list = $("list"), empty = $("empty"), count = $("count"),
           clearBtn = $("clearbtn"), form = $("form"), input = $("input"),
@@ -477,6 +478,18 @@
         membersByList = map;
       } catch (_) { /* e-mail-kolonne mangler endnu, eller offline */ }
     }
+    // Hent afventende invitationer for mine lister
+    async function loadInvites() {
+      const ids = getMembers();
+      if (!ids.length) { invitesByList = {}; return; }
+      try {
+        const { data, error } = await supa.from("invites").select("list_id,email").in("list_id", ids);
+        if (error) throw error;
+        const map = {};
+        (data || []).forEach(r => { (map[r.list_id] = map[r.list_id] || []).push((r.email || "").toLowerCase()); });
+        invitesByList = map;
+      } catch (_) { /* invites-tabel mangler endnu, eller offline */ }
+    }
     async function createList(name) {
       const id = crypto.randomUUID();
       let r = await supa.from("lists").insert({ id, name }); if (r.error) throw r.error;
@@ -510,6 +523,8 @@
     async function joinServer(id) {
       const r = await supa.from("list_members").insert({ list_id: id, user_id: uid });
       if (r.error && !String(r.error.message || "").includes("duplicate")) throw r.error;
+      // Accepter en evt. invitation til denne e-mail (så den ikke står som "afventer")
+      try { if (myEmail) await supa.from("invites").delete().eq("list_id", id).eq("email", myEmail.toLowerCase()); } catch (_) {}
       try { const { data } = await supa.from("lists").select("name").eq("id", id).maybeSingle(); if (data) setNameCache(id, data.name); } catch (_) {}
       saveMembers([...getMembers(), id]);
     }
@@ -639,10 +654,17 @@
         const name = document.createElement("button"); name.className = "lname";
         const nm = document.createElement("span"); nm.className = "ln-name"; nm.textContent = names[id] || "Indkøb";
         name.appendChild(nm);
-        const others = (membersByList[id] || []).filter(e => e && e !== myEmail);
-        if (others.length) {
+        const mine = myEmail.toLowerCase();
+        const memberEmails = (membersByList[id] || []).map(e => (e || "").toLowerCase());
+        const memberSet = new Set(memberEmails);
+        const shownMembers = memberEmails.filter(e => e && e !== mine);
+        const pending = (invitesByList[id] || []).filter(e => e && !memberSet.has(e) && e !== mine);
+        const parts = [];
+        if (shownMembers.length) parts.push("Delt med " + shownMembers.map(e => e.split("@")[0]).join(", "));
+        if (pending.length) parts.push("Afventer: " + pending.map(e => e.split("@")[0]).join(", "));
+        if (parts.length) {
           const sub = document.createElement("span"); sub.className = "ln-sub";
-          sub.textContent = "Delt med " + others.map(e => e.split("@")[0]).join(", ");
+          sub.textContent = parts.join(" · ");
           name.appendChild(sub);
         }
         name.onclick = () => { if (id !== listId) switchTo(id); else closeSheet(); };
@@ -654,7 +676,7 @@
         li.append(name, ren, del); ul.append(li);
       }
     }
-    async function refreshLists() { await loadMyLists(); await loadMembers(); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
+    async function refreshLists() { await loadMyLists(); await loadMembers(); await loadInvites(); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
     const openSheet = () => { renderLists(); $("listsSheet").hidden = false; refreshLists(); };
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
@@ -717,9 +739,15 @@
     form.onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t) return; addItem(t); input.value = ""; };
     clearBtn.onclick = clearDone;
     $("invite").onclick = async () => {
+      const who = (window.prompt("Hvem deler du listen med? Skriv deres e-mail (eller lad feltet stå tomt for bare at kopiere linket):", "") || "").trim().toLowerCase();
+      if (who) {
+        try { await supa.from("invites").insert({ list_id: listId, email: who }); } catch (_) {}
+        (invitesByList[listId] = invitesByList[listId] || []).push(who);
+        if (!$("listsSheet").hidden) renderLists();
+      }
       const url = inviteLink();
       if (navigator.share) { try { await navigator.share({ title: "Indkøbsliste", text: "Kom med på vores indkøbsliste", url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
-      try { await navigator.clipboard.writeText(url); showToast("Link kopieret – send det til familien"); return; } catch (_) {}
+      try { await navigator.clipboard.writeText(url); showToast(who ? ("Invitation registreret – send linket til " + who.split("@")[0]) : "Link kopieret – send det til familien"); return; } catch (_) {}
       try { const ta = document.createElement("textarea"); ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); const ok = document.execCommand("copy"); ta.remove(); if (ok) { showToast("Link kopieret – send det til familien"); return; } } catch (_) {}
       window.prompt("Kopiér linket og send det til familien:", url);
     };
@@ -746,6 +774,7 @@
     setStatus("", "Forbinder…");
     await fetchAll();
     subscribe();
+    loadMembers(); loadInvites();
   }
 
   main();
