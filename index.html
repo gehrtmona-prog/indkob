@@ -358,6 +358,8 @@
         const { data, error } = await supa.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
         if (error) msg(error.message, true);
         else if (data.session) location.reload();
+        else if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0)
+          msg("Der findes allerede en konto med denne e-mail. Skift til “Log ind”, eller brug “Glemt adgangskode?” / login-link, hvis du ikke har en kode.", true);
         else msg("Vi har sendt en bekræftelses-mail til " + email + " ✉️ Åbn den og tryk på linket – så er du inde. (Tjek evt. spam.)", false);
       } else {
         msg("Logger ind…");
