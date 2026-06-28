@@ -671,7 +671,7 @@
         const ren = document.createElement("button"); ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
         ren.onclick = e => { e.stopPropagation(); renameList(id); };
         const del = document.createElement("button"); del.className = "rowbtn"; del.textContent = "×";
-        del.title = others.length ? "Forlad liste" : "Slet liste";
+        del.title = shownMembers.length ? "Forlad liste" : "Slet liste";
         del.onclick = e => { e.stopPropagation(); deleteList(id); };
         li.append(name, ren, del); ul.append(li);
       }
