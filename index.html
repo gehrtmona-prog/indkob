@@ -137,6 +137,9 @@
   .rowbtn:hover { background: var(--line); color: var(--text); }
   .newlistbtn { width: 100%; margin-top: 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 13px; font-size: 16px; cursor: pointer; }
   .newlistbtn:active { transform: scale(.98); }
+  .linkbtn { display: block; width: 100%; margin-top: 12px; background: none; border: 0; color: var(--muted); font-size: 14px; text-decoration: underline; cursor: pointer; }
+  .winput { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); outline: none; }
+  .winput:focus { border-color: var(--accent); }
 
   /* Setup overlay */
   .setup {
@@ -190,6 +193,19 @@
       </div>
       <ul class="lists" id="listsUl"></ul>
       <button class="newlistbtn" id="newInSheet">＋ Ny liste</button>
+      <button class="linkbtn" id="joinInSheet">Tilslut en delt liste</button>
+    </div>
+  </div>
+
+  <!-- Velkomst: vises når enheden endnu ikke har valgt en liste -->
+  <div class="setup" id="welcome" hidden>
+    <div class="inner">
+      <h2>Velkommen 🛒</h2>
+      <p>Vil du oprette en ny indkøbsliste, eller tilslutte dig en, nogen har delt med dig?</p>
+      <button class="newlistbtn" id="wCreate">＋ Opret ny liste</button>
+      <p style="margin-top: 26px;">Har du fået et invitations-link eller en kode? Indsæt det her:</p>
+      <input id="wInput" class="winput" placeholder="Indsæt link eller kode…" autocomplete="off">
+      <button class="newlistbtn" id="wJoin" style="margin-top: 10px;">Tilslut liste</button>
     </div>
   </div>
 
@@ -231,14 +247,37 @@
     const supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { realtime: { params: { eventsPerSecond: 5 } } });
 
     /* ---- Liste-ID (deles via link-hash) ---- */
-    function getListId() {
-      let id = location.hash.slice(1) || localStorage.getItem("indkob.lastList") || crypto.randomUUID();
-      location.hash = id;
+    // Udtræk liste-koden fra en indsat streng (fuldt link eller bare koden)
+    const parseListId = raw => {
+      let id = (raw || "").trim();
+      if (id.includes("#")) id = id.split("#").pop();
+      return id.trim();
+    };
+    function adoptList(id, name) {
+      const m = JSON.parse(localStorage.getItem("indkob.members") || "[]"); m.push(id);
+      localStorage.setItem("indkob.members", JSON.stringify([...new Set(m)]));
+      if (name) {
+        const o = JSON.parse(localStorage.getItem("indkob.listnames") || "{}"); o[id] = name;
+        localStorage.setItem("indkob.listnames", JSON.stringify(o));
+      }
       localStorage.setItem("indkob.lastList", id);
-      return id;
+      location.hash = id;
+      location.reload();
     }
+    function showWelcome() {
+      app.hidden = true; bar.hidden = true;
+      $("welcome").hidden = false;
+      const join = () => { const id = parseListId($("wInput").value); if (!id) { $("wInput").focus(); return; } adoptList(id); };
+      $("wCreate").onclick = () => adoptList(crypto.randomUUID(), (window.prompt("Navn på listen?", "Indkøb") || "").trim() || "Indkøb");
+      $("wJoin").onclick = join;
+      $("wInput").onkeydown = e => { if (e.key === "Enter") join(); };
+    }
+
     const hadHash = !!location.hash.slice(1);
-    let listId = getListId();
+    let listId = location.hash.slice(1) || localStorage.getItem("indkob.lastList") || "";
+    if (!listId) { showWelcome(); return; }
+    location.hash = listId;
+    localStorage.setItem("indkob.lastList", listId);
     const cacheKey = () => "indkob.items." + listId;
 
     // --- Lister: medlemskab (lokalt) + navne (fælles via databasen, cachet lokalt) ---
@@ -566,10 +605,20 @@
       }
     }
 
+    function joinList() {
+      const id = parseListId(window.prompt("Indsæt invitations-link eller liste-kode for den liste, du vil tilslutte dig:"));
+      if (!id) return;
+      if (!getMembers().includes(id)) saveMembers([...getMembers(), id]);
+      if (id === listId) { closeSheet(); renderLists(); return; }
+      localStorage.setItem("indkob.lastList", id);
+      location.hash = id; // hashchange genindlæser med den tilsluttede liste
+    }
+
     $("title").onclick = openSheet;
     $("closeSheet").onclick = closeSheet;
     $("sheetBackdrop").onclick = closeSheet;
     $("newInSheet").onclick = newList;
+    $("joinInSheet").onclick = joinList;
     $("newlist").onclick = newList;
     updateTitle();
 
