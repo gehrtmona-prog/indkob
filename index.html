@@ -148,6 +148,10 @@
   .sheetfoot .linkbtn { width: auto; margin: 0; flex: none; }
   .authmsg { font-size: 14px; min-height: 20px; margin-top: 16px; }
   .authrow { margin-top: 10px; }
+  .authtabs { display: flex; gap: 8px; margin: 10px 0 14px; }
+  .authtab { flex: 1; padding: 11px; border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 10px; font-size: 15px; cursor: pointer; }
+  .authtab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  .authintro { font-size: 14px; color: var(--muted); margin: 0 0 12px; }
 
   /* Fuldskærms-overlay (login / setup) */
   .setup {
@@ -214,18 +218,19 @@
   <!-- Login -->
   <div class="setup" id="login" hidden>
     <div class="inner">
-      <h2>Log ind 🛒</h2>
-      <p>Skriv din e-mail og få et login-link. Er du ny, oprettes din konto automatisk. <strong>Du forbliver logget ind på denne enhed</strong> – du behøver ikke et nyt link hver gang. Har du valgt en adgangskode, kan du bruge den.</p>
+      <h2>Indkøb 🛒</h2>
+      <div class="authtabs">
+        <button type="button" class="authtab active" id="tabLogin">Log ind</button>
+        <button type="button" class="authtab" id="tabSignup">Opret konto</button>
+      </div>
+      <p id="authIntro" class="authintro">Log ind med din e-mail og adgangskode.</p>
       <form id="loginForm" autocomplete="on">
         <input id="email" class="winput" type="email" name="username" autocomplete="username" placeholder="din@email.dk" inputmode="email">
-        <button type="button" class="newlistbtn" id="magicBtn">Send mig et login-link</button>
-        <button type="button" class="linkbtn" id="togglePw">Brug adgangskode i stedet</button>
-        <div id="pwArea" hidden>
-          <input id="password" class="winput authrow" type="password" name="password" autocomplete="current-password" placeholder="Adgangskode">
-          <button type="submit" class="newlistbtn" id="loginBtn">Log ind</button>
-          <button type="button" class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
-        </div>
+        <input id="password" class="winput authrow" type="password" name="password" autocomplete="current-password" placeholder="Adgangskode">
+        <button type="submit" class="newlistbtn" id="authSubmit">Log ind</button>
       </form>
+      <button class="linkbtn" id="forgotBtn">Glemt adgangskode?</button>
+      <button class="linkbtn" id="magicBtn">Send mig et login-link i stedet</button>
       <p id="authMsg" class="authmsg"></p>
     </div>
   </div>
@@ -324,23 +329,44 @@
   function showLogin() {
     app.hidden = true; bar.hidden = true;
     $("login").hidden = false;
+    let mode = "login";
     const msg = (t, err) => { const m = $("authMsg"); m.textContent = t || ""; m.style.color = err ? "var(--warn)" : "var(--muted)"; };
-    $("togglePw").onclick = () => { $("pwArea").hidden = !$("pwArea").hidden; };
-    $("magicBtn").onclick = async () => {
-      const email = $("email").value.trim();
-      if (!email) { $("email").focus(); return; }
-      msg("Sender link…");
-      const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
-      msg(error ? ("Kunne ikke sende: " + error.message) : ("Vi har sendt et login-link til " + email + " ✉️ Åbn mailen og tryk på linket. Ingen mail? Tjek spam – eller tryk på knappen igen."), !!error);
-    };
+
+    function setMode(m) {
+      mode = m;
+      $("tabLogin").classList.toggle("active", m === "login");
+      $("tabSignup").classList.toggle("active", m === "signup");
+      $("authSubmit").textContent = m === "login" ? "Log ind" : "Opret konto";
+      $("password").setAttribute("autocomplete", m === "login" ? "current-password" : "new-password");
+      $("password").placeholder = m === "login" ? "Adgangskode" : "Vælg en adgangskode (min. 6 tegn)";
+      $("authIntro").textContent = m === "login"
+        ? "Log ind med din e-mail og adgangskode."
+        : "Opret en konto med din e-mail og en adgangskode – så kan du altid logge ind igen med dem.";
+      $("forgotBtn").hidden = m !== "login";
+      msg("");
+    }
+    $("tabLogin").onclick = () => setMode("login");
+    $("tabSignup").onclick = () => setMode("signup");
+
     $("loginForm").onsubmit = async e => {
       e.preventDefault();
       const email = $("email").value.trim(), password = $("password").value;
       if (!email || !password) { msg("Skriv e-mail og adgangskode.", true); return; }
-      msg("Logger ind…");
-      const { error } = await supa.auth.signInWithPassword({ email, password });
-      if (error) msg("Forkert e-mail eller adgangskode. Glemt den? Tryk “Glemt adgangskode?” nedenfor – eller log ind med et link.", true); else location.reload();
+      if (mode === "signup") {
+        if (password.length < 6) { msg("Adgangskoden skal være mindst 6 tegn.", true); return; }
+        msg("Opretter konto…");
+        const { data, error } = await supa.auth.signUp({ email, password });
+        if (error) msg(error.message, true);
+        else if (data.session) location.reload();
+        else msg("Tjek din mail for at bekræfte din konto – log derefter ind.", false);
+      } else {
+        msg("Logger ind…");
+        const { error } = await supa.auth.signInWithPassword({ email, password });
+        if (error) msg("Forkert e-mail eller adgangskode. Er du ny? Tryk “Opret konto” foroven.", true);
+        else location.reload();
+      }
     };
+
     $("forgotBtn").onclick = async () => {
       const email = $("email").value.trim();
       if (!email) { msg("Skriv din e-mail først.", true); return; }
@@ -348,7 +374,15 @@
       const { error } = await supa.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
       msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din mail – klik linket for at vælge en ny adgangskode ✉️", !!error);
     };
-    $("email").onkeydown = e => { if (e.key === "Enter" && $("pwArea").hidden) { e.preventDefault(); $("magicBtn").click(); } };
+    $("magicBtn").onclick = async () => {
+      const email = $("email").value.trim();
+      if (!email) { msg("Skriv din e-mail først.", true); return; }
+      msg("Sender link…");
+      const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
+      msg(error ? ("Kunne ikke sende: " + error.message) : ("Vi har sendt et login-link til " + email + " ✉️ Tjek evt. spam."), !!error);
+    };
+
+    setMode("login");
   }
 
   /* ---------------- NY ADGANGSKODE (efter nulstilling) ---------------- */
