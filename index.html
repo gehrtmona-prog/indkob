@@ -366,10 +366,14 @@
 
     /* --- Lister fra serveren (med lokal cache) --- */
     async function claimLocalLists() {
+      // Kører KUN én gang: migrér enhedens gamle (pre-login) lister ind på kontoen.
+      // Ellers ville en slettet liste "genopstå" fra den lokale cache ved næste opstart.
+      if (localStorage.getItem("indkob.claimed")) return;
       const local = getMembers();
-      if (!local.length) return;
+      if (!local.length) { localStorage.setItem("indkob.claimed", "1"); return; }
       try {
-        const { data: mem } = await supa.from("list_members").select("list_id").eq("user_id", uid);
+        const { data: mem, error } = await supa.from("list_members").select("list_id").eq("user_id", uid);
+        if (error) throw error;
         const haveMem = new Set((mem || []).map(m => m.list_id));
         const names = getNames();
         for (const id of local) {
@@ -378,7 +382,8 @@
             await supa.from("list_members").insert({ list_id: id, user_id: uid });
           }
         }
-      } catch (_) {}
+        localStorage.setItem("indkob.claimed", "1");
+      } catch (_) { /* offline: prøv igen næste gang */ }
     }
     async function loadMyLists() {
       try {
@@ -600,7 +605,11 @@
     $("newInSheet").onclick = newList;
     $("joinInSheet").onclick = joinList;
     $("newlist").onclick = newList;
-    $("logoutBtn").onclick = async () => { await supa.auth.signOut(); location.reload(); };
+    $("logoutBtn").onclick = async () => {
+      await supa.auth.signOut();
+      Object.keys(localStorage).filter(k => k.startsWith("indkob.")).forEach(k => localStorage.removeItem(k));
+      location.reload();
+    };
     $("whoami").textContent = user.email || "";
     updateTitle();
 
