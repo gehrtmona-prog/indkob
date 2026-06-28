@@ -30,7 +30,7 @@
     background: var(--bg); color: var(--text); line-height: 1.5;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
-  .wrap { max-width: 520px; margin: 0 auto; padding: 28px 20px 130px; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 28px 20px 40px; }
   header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   h1 { font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.5px; }
   .actions { display: flex; gap: 6px; }
@@ -80,17 +80,16 @@
     font-size: 13px; cursor: pointer; text-decoration: underline;
   }
 
-  .barwrap {
-    position: fixed; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(to top, var(--bg) 65%, transparent);
-    padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  .addbar {
+    position: sticky; top: 0; z-index: 10; background: var(--bg);
+    padding: 4px 0 14px;
   }
-  .barwrap form {
-    max-width: 520px; margin: 0 auto; display: flex; gap: 10px; background: var(--card);
+  .addbar form {
+    display: flex; gap: 10px; background: var(--card);
     border: 1px solid var(--line); border-radius: 16px; padding: 6px 6px 6px 18px;
     box-shadow: 0 6px 24px rgba(0,0,0,.06);
   }
-  .barwrap input { flex: 1; border: 0; background: none; color: var(--text); font-size: 17px; padding: 12px 0; outline: none; }
+  .addbar input { flex: 1; border: 0; background: none; color: var(--text); font-size: 17px; padding: 12px 0; outline: none; }
   .add {
     flex: none; width: 44px; height: 44px; border: 0; border-radius: 12px;
     background: var(--accent); color: var(--bg); font-size: 24px; cursor: pointer; transition: .12s;
@@ -190,16 +189,16 @@
       <span class="count" id="count"></span>
     </div>
 
+    <div class="addbar" id="addbar">
+      <form id="form">
+        <input id="input" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done">
+        <button class="add" type="submit" aria-label="Tilføj">+</button>
+      </form>
+    </div>
+
     <ul id="list"></ul>
     <div class="empty" id="empty" hidden>Din liste er tom 🛒</div>
     <button class="clear" id="clearbtn" hidden>Ryd afkrydsede</button>
-  </div>
-
-  <div class="barwrap" id="barwrap" hidden>
-    <form id="form">
-      <input id="input" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done">
-      <button class="add" type="submit" aria-label="Tilføj">+</button>
-    </form>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -310,7 +309,7 @@
 
   const configured = !SUPABASE_URL.startsWith("DIN_") && !SUPABASE_ANON_KEY.startsWith("DIN_");
   const $ = id => document.getElementById(id);
-  const app = $("app"), bar = $("barwrap");
+  const app = $("app"), bar = $("addbar");
   let supa, uid;
 
   /* Lokal cache (så appen også viser noget offline) */
@@ -605,7 +604,7 @@
       li.append(box, label, del); li._label = label; return li;
     }
     function render(opt = {}) {
-      const sorted = [...items].sort((a, b) => (a.done - b.done) || (new Date(a.created_at) - new Date(b.created_at)));
+      const sorted = [...items].sort((a, b) => (a.done - b.done) || (new Date(b.created_at) - new Date(a.created_at)));
       const ids = new Set(items.map(i => i.id));
       for (const [id, li] of nodes) { if (!ids.has(id)) { li.remove(); nodes.delete(id); } }
       sorted.forEach((it, idx) => {
