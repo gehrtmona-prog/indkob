@@ -133,6 +133,10 @@
   .lname { flex: 1; background: none; border: 0; color: var(--text); text-align: left; padding: 12px 2px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   .ln-name { font-size: 17px; }
   .ln-sub { font-size: 12px; color: var(--muted); }
+  .sheetsub { font-size: 13px; color: var(--muted); font-weight: 600; margin: 16px 0 2px; }
+  .invact { background: none; border: 0; font-size: 14px; cursor: pointer; padding: 12px 8px; width: auto; flex: none; }
+  .invact.ok { color: var(--ok); font-weight: 600; }
+  .invact.no { color: var(--muted); }
   .listrow.current .ln-name { font-weight: 600; }
   .listrow.current .ln-name::after { content: " ✓"; color: var(--ok); }
   .rowbtn { background: none; border: 0; color: var(--muted); font-size: 17px; cursor: pointer; padding: 8px; border-radius: 8px; }
@@ -203,6 +207,10 @@
       <div class="sheethead">
         <h2>Mine lister</h2>
         <button class="iconbtn" id="closeSheet" aria-label="Luk">×</button>
+      </div>
+      <div id="incomingWrap" hidden>
+        <div class="sheetsub">Invitationer til dig</div>
+        <ul class="lists" id="incomingUl"></ul>
       </div>
       <ul class="lists" id="listsUl"></ul>
       <button class="newlistbtn" id="newInSheet">＋ Ny liste</button>
@@ -418,7 +426,8 @@
     app.hidden = false; bar.hidden = false;
     const myEmail = user.email || "";
     let membersByList = {}; // { list_id: [email, ...] } – nuværende medlemmer
-    let invitesByList = {}; // { list_id: [email, ...] } – afventende invitationer
+    let invitesByList = {}; // { list_id: [email, ...] } – afventende invitationer (sendt af mig)
+    let myInvites = [];     // [{ id, name }] – invitationer til MIG, endnu ikke accepteret
 
     const list = $("list"), empty = $("empty"), count = $("count"),
           clearBtn = $("clearbtn"), form = $("form"), input = $("input"),
@@ -489,6 +498,19 @@
         (data || []).forEach(r => { (map[r.list_id] = map[r.list_id] || []).push((r.email || "").toLowerCase()); });
         invitesByList = map;
       } catch (_) { /* invites-tabel mangler endnu, eller offline */ }
+    }
+    // Hent invitationer til MIG (lister jeg er inviteret til, men ikke medlem af endnu)
+    async function loadMyInvites() {
+      if (!myEmail) { myInvites = []; return; }
+      try {
+        const { data: inv, error } = await supa.from("invites").select("list_id").eq("email", myEmail.toLowerCase());
+        if (error) throw error;
+        const ids = (inv || []).map(r => r.list_id).filter(id => !getMembers().includes(id));
+        if (!ids.length) { myInvites = []; return; }
+        const { data: ls } = await supa.from("lists").select("id,name").in("id", ids);
+        const nameMap = {}; (ls || []).forEach(l => { nameMap[l.id] = l.name; });
+        myInvites = ids.map(id => ({ id, name: nameMap[id] || "Delt liste" }));
+      } catch (_) { myInvites = []; }
     }
     async function createList(name) {
       const id = crypto.randomUUID();
@@ -673,11 +695,51 @@
         const del = document.createElement("button"); del.className = "rowbtn"; del.textContent = "×";
         del.title = shownMembers.length ? "Forlad liste" : "Slet liste";
         del.onclick = e => { e.stopPropagation(); deleteList(id); };
-        li.append(name, ren, del); ul.append(li);
+        if (pending.length) {
+          const undo = document.createElement("button"); undo.className = "rowbtn"; undo.textContent = "↩"; undo.title = "Annullér invitation";
+          undo.onclick = e => { e.stopPropagation(); cancelInvites(id, pending); };
+          li.append(name, undo, ren, del);
+        } else {
+          li.append(name, ren, del);
+        }
+        ul.append(li);
       }
     }
-    async function refreshLists() { await loadMyLists(); await loadMembers(); await loadInvites(); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
-    const openSheet = () => { renderLists(); $("listsSheet").hidden = false; refreshLists(); };
+    function renderIncoming() {
+      const ul = $("incomingUl"); ul.innerHTML = "";
+      $("incomingWrap").hidden = !myInvites.length;
+      for (const inv of myInvites) {
+        const li = document.createElement("li"); li.className = "listrow";
+        const nm = document.createElement("span"); nm.textContent = inv.name; nm.style.cssText = "flex:1; font-size:17px; padding:12px 2px;";
+        const ok = document.createElement("button"); ok.className = "invact ok"; ok.textContent = "Godkend";
+        ok.onclick = () => acceptInvite(inv.id);
+        const no = document.createElement("button"); no.className = "invact no"; no.textContent = "Afvis";
+        no.onclick = () => declineInvite(inv.id);
+        li.append(nm, ok, no); ul.append(li);
+      }
+    }
+    async function acceptInvite(id) {
+      try { await joinServer(id); } catch (_) {}
+      localStorage.setItem("indkob.lastList", id);
+      await refreshLists();
+    }
+    async function declineInvite(id) {
+      try { await supa.from("invites").delete().eq("list_id", id).eq("email", myEmail.toLowerCase()); } catch (_) {}
+      await refreshLists();
+    }
+    async function cancelInvites(id, emails) {
+      if (!emails.length) return;
+      if (!confirm("Annullér invitationen til " + emails.map(e => e.split("@")[0]).join(", ") + "?")) return;
+      try { await supa.from("invites").delete().eq("list_id", id).in("email", emails); } catch (_) {}
+      invitesByList[id] = (invitesByList[id] || []).filter(e => !emails.includes(e));
+      renderLists();
+    }
+    async function refreshLists() {
+      await loadMyLists(); await loadMembers(); await loadInvites(); await loadMyInvites();
+      updateTitle();
+      if (!$("listsSheet").hidden) { renderIncoming(); renderLists(); }
+    }
+    const openSheet = () => { renderIncoming(); renderLists(); $("listsSheet").hidden = false; refreshLists(); };
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
     async function newList() {
@@ -774,7 +836,7 @@
     setStatus("", "Forbinder…");
     await fetchAll();
     subscribe();
-    loadMembers(); loadInvites();
+    loadMembers(); loadInvites(); loadMyInvites();
   }
 
   main();
