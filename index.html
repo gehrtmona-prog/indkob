@@ -231,12 +231,12 @@
   <!-- Vælg ny adgangskode (efter nulstillings-link) -->
   <div class="setup" id="setpw" hidden>
     <div class="inner">
-      <h2>Vælg ny adgangskode 🔑</h2>
-      <p>Skriv din nye adgangskode for at fuldføre nulstillingen.</p>
+      <h2>Vælg adgangskode 🔑</h2>
+      <p>Skriv den adgangskode, du vil logge ind med fremover.</p>
       <form id="setpwForm" autocomplete="on">
         <input id="setpwUser" type="email" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute; left:-9999px; width:1px; height:1px; opacity:0;">
-        <input id="newpw" class="winput" type="password" name="new-password" autocomplete="new-password" placeholder="Ny adgangskode (min. 6 tegn)">
-        <button type="submit" class="newlistbtn" id="setpwBtn">Gem og log ind</button>
+        <input id="newpw" class="winput" type="password" name="new-password" autocomplete="new-password" placeholder="Adgangskode (min. 6 tegn)">
+        <button type="submit" class="newlistbtn" id="setpwBtn">Gem adgangskode</button>
         <button type="button" class="linkbtn" id="setpwCancel">Annullér</button>
       </form>
       <p id="setpwMsg" class="authmsg"></p>
@@ -291,7 +291,7 @@
     if (/type=recovery/.test(location.hash)) {
       await supa.auth.getSession(); // lader recovery-sessionen blive etableret
       history.replaceState(null, "", location.pathname);
-      showSetPassword();
+      showSetPassword(true);
       return;
     }
     const { data: { session } } = await supa.auth.getSession();
@@ -334,11 +334,15 @@
   }
 
   /* ---------------- NY ADGANGSKODE (efter nulstilling) ---------------- */
-  async function showSetPassword() {
+  async function showSetPassword(recovery) {
+    $("listsSheet").hidden = true;
     app.hidden = true; bar.hidden = true;
     $("login").hidden = true; $("setpw").hidden = false;
+    $("newpw").value = "";
     try { const { data: { user } } = await supa.auth.getUser(); if (user) $("setpwUser").value = user.email || ""; } catch (_) {}
     const msg = (t, err) => { const m = $("setpwMsg"); m.textContent = t || ""; m.style.color = err ? "var(--warn)" : "var(--muted)"; };
+    msg("");
+    const back = () => { $("setpw").hidden = true; app.hidden = false; bar.hidden = false; };
     $("setpwForm").onsubmit = async e => {
       e.preventDefault();
       const pw = $("newpw").value;
@@ -346,9 +350,13 @@
       msg("Gemmer…");
       const { error } = await supa.auth.updateUser({ password: pw });
       if (error) { msg("Kunne ikke gemme: " + error.message, true); return; }
-      location.assign(location.pathname); // genindlæser – nu logget ind med ny kode
+      if (recovery) location.assign(location.pathname); // nulstilling: genindlæs (logget ind med ny kode)
+      else { msg("Adgangskode gemt ✅"); setTimeout(back, 900); }
     };
-    $("setpwCancel").onclick = async () => { try { await supa.auth.signOut(); } catch (_) {} location.assign(location.pathname); };
+    $("setpwCancel").onclick = async () => {
+      if (recovery) { try { await supa.auth.signOut(); } catch (_) {} location.assign(location.pathname); }
+      else back();
+    };
   }
 
   /* ---------------- APP ---------------- */
@@ -610,13 +618,7 @@
     $("newInSheet").onclick = newList;
     $("joinInSheet").onclick = joinList;
     $("newlist").onclick = newList;
-    $("pwBtn").onclick = async () => {
-      const pw = window.prompt("Vælg en adgangskode (mindst 6 tegn):");
-      if (pw === null) return;
-      if (pw.length < 6) { showToast("Adgangskoden skal være mindst 6 tegn"); return; }
-      const { error } = await supa.auth.updateUser({ password: pw });
-      showToast(error ? "Kunne ikke gemme adgangskoden" : "Adgangskode gemt ✅");
-    };
+    $("pwBtn").onclick = () => showSetPassword(false);
     $("logoutBtn").onclick = async () => {
       await supa.auth.signOut();
       Object.keys(localStorage).filter(k => k.startsWith("indkob.")).forEach(k => localStorage.removeItem(k));
