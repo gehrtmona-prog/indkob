@@ -239,6 +239,10 @@
       <p style="margin-top: 26px;">Har du et invitations-link eller en kode?</p>
       <input id="obInput" class="winput" placeholder="Indsæt link eller kode…" autocomplete="off">
       <button class="newlistbtn" id="obJoin" style="margin-top: 10px;">Tilslut liste</button>
+      <div class="sheetfoot">
+        <span class="who" id="obWho"></span>
+        <button class="linkbtn" id="obLogout">Log ud</button>
+      </div>
     </div>
   </div>
 
@@ -459,6 +463,12 @@
     function showOnboarding() {
       app.hidden = true; bar.hidden = true;
       $("onboard").hidden = false;
+      $("obWho").textContent = myEmail ? ("Logget ind som " + myEmail) : "";
+      $("obLogout").onclick = async () => {
+        await supa.auth.signOut();
+        Object.keys(localStorage).filter(k => k.startsWith("indkob.")).forEach(k => localStorage.removeItem(k));
+        location.reload();
+      };
       $("obCreate").onclick = async () => {
         const name = (window.prompt("Navn på listen?", "Indkøb") || "").trim();
         if (!name) return;
