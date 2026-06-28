@@ -266,13 +266,15 @@
     if (!configured) { $("setupOverlay").hidden = false; return; }
     const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
     supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" },
       realtime: { params: { eventsPerSecond: 5 } }
     });
     const { data: { session } } = await supa.auth.getSession();
-    if (!session) { showLogin(); return; }
-    uid = session.user.id;
-    boot(session.user);
+    if (session) { uid = session.user.id; boot(session.user); return; }
+    // Sikkerhedsnet: hvis et login-link netop er ved at blive behandlet, fanger vi det her
+    let handled = false;
+    supa.auth.onAuthStateChange((_event, sess) => { if (sess && !handled) { handled = true; location.reload(); } });
+    showLogin();
   }
 
   /* ---------------- LOGIN ---------------- */
@@ -285,7 +287,7 @@
       const email = $("email").value.trim();
       if (!email) { $("email").focus(); return; }
       msg("Sender link…");
-      const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href } });
+      const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
       msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din indbakke – vi har sendt dig et login-link ✉️", !!error);
     };
     $("loginBtn").onclick = async () => {
