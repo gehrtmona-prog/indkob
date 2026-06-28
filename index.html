@@ -246,17 +246,6 @@
     </div>
   </div>
 
-  <!-- Engangs-tip efter login -->
-  <div class="setup" id="welcomeTip" hidden>
-    <div class="inner">
-      <h2>Du er logget ind 🎉</h2>
-      <p>Du forbliver logget ind på denne enhed – du behøver <strong>ikke</strong> et nyt link hver gang. Næste gang åbner du bare appen.</p>
-      <p>Vil du kunne logge ind med en <strong>adgangskode</strong> i stedet for et link? Det er valgfrit – du kan altid gøre det senere under <em>Mine lister → Skift adgangskode</em>.</p>
-      <button class="newlistbtn" id="tipSetPw">Vælg en adgangskode</button>
-      <button class="linkbtn" id="tipLater">Ikke nu</button>
-    </div>
-  </div>
-
   <!-- Vælg ny adgangskode (efter nulstillings-link) -->
   <div class="setup" id="setpw" hidden>
     <div class="inner">
@@ -342,7 +331,7 @@
       if (!email) { $("email").focus(); return; }
       msg("Sender link…");
       const { error } = await supa.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
-      msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din indbakke – vi har sendt dig et login-link ✉️", !!error);
+      msg(error ? ("Kunne ikke sende: " + error.message) : ("Vi har sendt et login-link til " + email + " ✉️ Åbn mailen og tryk på linket. Ingen mail? Tjek spam – eller tryk på knappen igen."), !!error);
     };
     $("loginForm").onsubmit = async e => {
       e.preventDefault();
@@ -721,13 +710,6 @@
     setStatus("", "Forbinder…");
     await fetchAll();
     subscribe();
-
-    // Engangs-tip efter login: forklarer at man forbliver logget ind + tilbyder adgangskode
-    if (!localStorage.getItem("indkob.welcomed")) {
-      $("welcomeTip").hidden = false;
-      $("tipLater").onclick = () => { localStorage.setItem("indkob.welcomed", "1"); $("welcomeTip").hidden = true; };
-      $("tipSetPw").onclick = () => { localStorage.setItem("indkob.welcomed", "1"); $("welcomeTip").hidden = true; showSetPassword(false); };
-    }
   }
 
   main();
