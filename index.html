@@ -226,6 +226,18 @@
     </div>
   </div>
 
+  <!-- Vælg ny adgangskode (efter nulstillings-link) -->
+  <div class="setup" id="setpw" hidden>
+    <div class="inner">
+      <h2>Vælg ny adgangskode 🔑</h2>
+      <p>Skriv din nye adgangskode for at fuldføre nulstillingen.</p>
+      <input id="newpw" class="winput" type="password" placeholder="Ny adgangskode (min. 6 tegn)" autocomplete="new-password">
+      <button class="newlistbtn" id="setpwBtn">Gem og log ind</button>
+      <button class="linkbtn" id="setpwCancel">Annullér</button>
+      <p id="setpwMsg" class="authmsg"></p>
+    </div>
+  </div>
+
   <!-- Vises kun hvis Supabase ikke er konfigureret -->
   <div class="setup" id="setupOverlay" hidden>
     <div class="inner">
@@ -273,12 +285,8 @@
     // Nulstilling af adgangskode: linket fra "Glemt adgangskode?" lander her
     if (/type=recovery/.test(location.hash)) {
       await supa.auth.getSession(); // lader recovery-sessionen blive etableret
-      const pw = window.prompt("Vælg en ny adgangskode (mindst 6 tegn):");
-      if (pw && pw.length >= 6) {
-        const { error } = await supa.auth.updateUser({ password: pw });
-        alert(error ? ("Kunne ikke opdatere: " + error.message) : "Din adgangskode er opdateret ✅");
-      }
-      location.assign(location.pathname);
+      history.replaceState(null, "", location.pathname);
+      showSetPassword();
       return;
     }
     const { data: { session } } = await supa.auth.getSession();
@@ -326,6 +334,23 @@
       msg(error ? ("Kunne ikke sende: " + error.message) : "Tjek din mail – klik linket for at vælge en ny adgangskode ✉️", !!error);
     };
     $("email").onkeydown = e => { if (e.key === "Enter") $("magicBtn").click(); };
+  }
+
+  /* ---------------- NY ADGANGSKODE (efter nulstilling) ---------------- */
+  function showSetPassword() {
+    app.hidden = true; bar.hidden = true;
+    $("login").hidden = true; $("setpw").hidden = false;
+    const msg = (t, err) => { const m = $("setpwMsg"); m.textContent = t || ""; m.style.color = err ? "var(--warn)" : "var(--muted)"; };
+    $("setpwBtn").onclick = async () => {
+      const pw = $("newpw").value;
+      if (!pw || pw.length < 6) { msg("Adgangskoden skal være mindst 6 tegn.", true); return; }
+      msg("Gemmer…");
+      const { error } = await supa.auth.updateUser({ password: pw });
+      if (error) { msg("Kunne ikke gemme: " + error.message, true); return; }
+      location.assign(location.pathname); // genindlæser – nu logget ind med ny kode
+    };
+    $("setpwCancel").onclick = async () => { try { await supa.auth.signOut(); } catch (_) {} location.assign(location.pathname); };
+    $("newpw").onkeydown = e => { if (e.key === "Enter") $("setpwBtn").click(); };
   }
 
   /* ---------------- APP ---------------- */
