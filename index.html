@@ -865,6 +865,20 @@
     window.addEventListener("online", () => { setStatus("ok", "Online"); flushOutbox().then(fetchAll); });
     window.addEventListener("offline", () => setStatus("warn", "Offline – gemmes lokalt"));
 
+    // Lad tilføj-feltet følge tastaturet (som i native apps / Microsoft To Do)
+    const vv = window.visualViewport;
+    if (vv) {
+      const fitBar = () => {
+        const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        bar.style.transform = overlap ? `translateY(-${overlap}px)` : "";
+        bar.style.paddingBottom = overlap ? "12px" : "";
+      };
+      vv.addEventListener("resize", fitBar);
+      vv.addEventListener("scroll", fitBar);
+      window.addEventListener("scroll", fitBar, { passive: true });
+      fitBar();
+    }
+
     /* --- Start --- */
     render();
     setStatus("", "Forbinder…");
