@@ -602,7 +602,8 @@
         name.onclick = () => { if (id !== listId) switchTo(id); else closeSheet(); };
         const ren = document.createElement("button"); ren.className = "rowbtn"; ren.textContent = "✎"; ren.title = "Omdøb";
         ren.onclick = e => { e.stopPropagation(); renameList(id); };
-        const del = document.createElement("button"); del.className = "rowbtn"; del.textContent = "×"; del.title = "Slet liste";
+        const del = document.createElement("button"); del.className = "rowbtn"; del.textContent = "×";
+        del.title = others.length ? "Forlad liste" : "Slet liste";
         del.onclick = e => { e.stopPropagation(); deleteList(id); };
         li.append(name, ren, del); ul.append(li);
       }
@@ -628,14 +629,29 @@
     }
     async function deleteList(id) {
       const name = listName(id);
-      if (!confirm(`Slet listen "${name}"?\n\nAlle varer på listen slettes – også for de andre, der deler den. Dette kan ikke fortrydes.`)) return;
-      try {
-        let r = await supa.from("items").delete().eq("list_id", id); if (r.error) throw r.error;
-        r = await supa.from("lists").delete().eq("id", id); if (r.error) throw r.error; // cascade fjerner medlemskaber
-      } catch (_) { alert("Kunne ikke slette lige nu – tjek din internetforbindelse og prøv igen."); return; }
+
+      // Find hvor mange der er på listen (kræver den nye adgangsregel; ved tvivl behandler vi den som delt = sikrest)
+      let count = null;
+      try { const { data, error } = await supa.from("list_members").select("user_id").eq("list_id", id); if (error) throw error; count = (data || []).length; } catch (_) { count = null; }
+      const solo = count === 1;
+
+      if (solo) {
+        if (!confirm(`Slet listen "${name}"?\n\nAlle varer slettes. Dette kan ikke fortrydes.`)) return;
+        try {
+          let r = await supa.from("items").delete().eq("list_id", id); if (r.error) throw r.error;
+          r = await supa.from("lists").delete().eq("id", id); if (r.error) throw r.error; // cascade fjerner medlemskaber
+        } catch (_) { alert("Kunne ikke slette lige nu – tjek din forbindelse og prøv igen."); return; }
+      } else {
+        if (!confirm(`Forlad listen "${name}"?\n\nDu fjerner den kun fra din egen oversigt – de andre beholder listen og varerne.`)) return;
+        try { const r = await supa.from("list_members").delete().eq("list_id", id).eq("user_id", uid); if (r.error) throw r.error; }
+        catch (_) { alert("Kunne ikke forlade lige nu – tjek din forbindelse og prøv igen."); return; }
+      }
+
+      // Lokal oprydning
       saveMembers(getMembers().filter(x => x !== id));
       const names = getNames(); delete names[id]; saveNames(names);
       localStorage.removeItem("indkob.items." + id);
+      delete membersByList[id];
       if (id === listId) {
         const rest = getMembers();
         if (rest.length) switchTo(rest[0]);
