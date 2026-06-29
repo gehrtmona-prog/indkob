@@ -69,8 +69,10 @@
     content: ""; position: absolute; left: 7px; top: 3px; width: 5px; height: 10px;
     border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
   }
-  .label { flex: 1; font-size: 17px; word-break: break-word; }
-  li.done .label { color: var(--done); text-decoration: line-through; }
+  .label { flex: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; cursor: pointer; }
+  .ltext { font-size: 17px; word-break: break-word; }
+  .qty { color: var(--muted); font-size: 14px; flex: none; }
+  li.done .ltext { color: var(--done); text-decoration: line-through; }
   .del {
     background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer;
     padding: 0 6px; line-height: 1; opacity: 0; transition: .15s;
@@ -150,6 +152,10 @@
   .copybtn.copied { background: var(--ok); }
   .sheet.centerSheet { align-items: center; }
   .centerSheet .sheetcard { border-radius: 20px; max-width: 480px; margin: 0 16px; }
+  .qtyrow { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; font-size: 16px; }
+  .stepper { display: flex; align-items: center; gap: 6px; }
+  .stepper button { width: 40px; height: 40px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 10px; font-size: 22px; line-height: 1; cursor: pointer; }
+  .stepper span { min-width: 36px; text-align: center; font-size: 17px; }
 
   .sheetfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   .who { flex: 1 1 100%; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -268,6 +274,28 @@
         <input id="shareUrl" class="winput" readonly>
         <button id="copyBtn" class="copybtn">Kopiér</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Ret vare -->
+  <div class="sheet centerSheet" id="itemSheet" hidden>
+    <div class="backdrop" id="itemBackdrop"></div>
+    <div class="sheetcard">
+      <div class="sheethead">
+        <h2>Ret vare</h2>
+        <button class="iconbtn" id="itemClose" aria-label="Luk">×</button>
+      </div>
+      <input id="itemText" class="winput" autocomplete="off" enterkeyhint="done">
+      <div class="qtyrow">
+        <span>Antal</span>
+        <div class="stepper">
+          <button type="button" id="qtyMinus" aria-label="Færre">−</button>
+          <span id="qtyVal">1</span>
+          <button type="button" id="qtyPlus" aria-label="Flere">+</button>
+        </div>
+      </div>
+      <button class="newlistbtn" id="itemSave">Gem</button>
+      <button class="linkbtn" id="itemDelete">Slet vare</button>
     </div>
   </div>
 
@@ -640,9 +668,12 @@
     function makeLi(id) {
       const li = document.createElement("li");
       const box = document.createElement("div"); box.className = "box"; box.onclick = () => toggle(id);
-      const label = document.createElement("span"); label.className = "label";
+      const label = document.createElement("div"); label.className = "label"; label.onclick = () => editItem(id);
+      const ltext = document.createElement("span"); ltext.className = "ltext";
+      const qty = document.createElement("span"); qty.className = "qty";
+      label.append(ltext, qty);
       const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.onclick = () => remove(id);
-      li.append(box, label, del); li._label = label; return li;
+      li.append(box, label, del); li._text = ltext; li._qty = qty; return li;
     }
     function renderSection(ul, arr, nodes, opt) {
       const ids = new Set(arr.map(i => i.id));
@@ -650,7 +681,9 @@
       arr.forEach((it, idx) => {
         let li = nodes.get(it.id);
         if (!li) { li = makeLi(it.id); if (opt.appearId === it.id) li.classList.add("appear"); nodes.set(it.id, li); }
-        if (li._label.textContent !== it.text) li._label.textContent = it.text;
+        if (li._text.textContent !== it.text) li._text.textContent = it.text;
+        const qtyText = (it.qty || 1) > 1 ? "×" + it.qty : "";
+        if (li._qty.textContent !== qtyText) li._qty.textContent = qtyText;
         li.classList.toggle("done", it.done);
         if (ul.children[idx] !== li) ul.insertBefore(li, ul.children[idx] || null);
       });
@@ -670,15 +703,37 @@
       catch (e) { outbox.push(op.queued); saveOutbox(); setStatus("warn", "Offline – gemmes når der er net"); return false; }
     }
     function addItem(text) {
-      const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, created_at: new Date().toISOString() };
+      const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, qty: 1, created_at: new Date().toISOString() };
       items.push(item); saveCache(); render({ appearId: item.id });
       input.scrollIntoView({ block: "nearest" });
-      run({ queued: { type: "insert", row: item }, exec: () => supa.from("items").insert(item).then(r => { if (r.error) throw r.error; }) });
+      const { qty, ...row } = item; // udelad qty i insert (DB sætter default) -> virker også før kolonnen findes
+      run({ queued: { type: "insert", row }, exec: () => supa.from("items").insert(row).then(r => { if (r.error) throw r.error; }) });
     }
     function toggle(id) {
       const it = items.find(i => i.id === id); if (!it) return;
       it.done = !it.done; saveCache(); render();
-      run({ queued: { type: "update", id, done: it.done }, exec: () => supa.from("items").update({ done: it.done }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
+      run({ queued: { type: "update", id, fields: { done: it.done } }, exec: () => supa.from("items").update({ done: it.done }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
+    }
+    function editItem(id) {
+      const it = items.find(i => i.id === id); if (!it) return;
+      let q = it.qty || 1;
+      $("itemText").value = it.text;
+      const setQ = () => { $("qtyVal").textContent = q; };
+      setQ();
+      $("qtyMinus").onclick = () => { if (q > 1) { q--; setQ(); } };
+      $("qtyPlus").onclick = () => { if (q < 99) { q++; setQ(); } };
+      const close = () => { $("itemSheet").hidden = true; };
+      $("itemClose").onclick = close;
+      $("itemBackdrop").onclick = close;
+      $("itemSave").onclick = () => {
+        const text = $("itemText").value.trim(); if (!text) return;
+        it.text = text; it.qty = q; saveCache(); render(); close();
+        run({ queued: { type: "update", id, fields: { text, qty: q } }, exec: () => supa.from("items").update({ text, qty: q }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
+      };
+      $("itemDelete").onclick = () => { close(); remove(id); };
+      $("itemText").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $("itemSave").click(); } };
+      $("itemSheet").hidden = false;
+      setTimeout(() => $("itemText").focus(), 60);
     }
     function remove(id) {
       const it = items.find(i => i.id === id); if (!it) return;
@@ -696,7 +751,7 @@
       for (const q of pending) {
         try {
           if (q.type === "insert") { const r = await supa.from("items").insert(q.row); if (r.error) throw r.error; }
-          else if (q.type === "update") { const r = await supa.from("items").update({ done: q.done }).eq("id", q.id); if (r.error) throw r.error; }
+          else if (q.type === "update") { const r = await supa.from("items").update(q.fields).eq("id", q.id); if (r.error) throw r.error; }
           else if (q.type === "delete") { const r = await supa.from("items").delete().eq("id", q.id); if (r.error) throw r.error; }
           else if (q.type === "deleteMany") { const r = await supa.from("items").delete().in("id", q.ids); if (r.error) throw r.error; }
         } catch (e) { outbox.push(q); }
@@ -715,7 +770,7 @@
         .on("postgres_changes", { event: "*", schema: "public", table: "items", filter: "list_id=eq." + listId }, payload => {
           const { eventType, new: n, old: o } = payload; let changed = false, appearId = null;
           if (eventType === "INSERT") { if (!items.some(i => i.id === n.id)) { items.push(n); changed = true; appearId = n.id; } }
-          else if (eventType === "UPDATE") { const cur = items.find(i => i.id === n.id); if (!cur || cur.done !== n.done || cur.text !== n.text) { items = items.map(i => i.id === n.id ? n : i); changed = true; } }
+          else if (eventType === "UPDATE") { const cur = items.find(i => i.id === n.id); if (!cur || cur.done !== n.done || cur.text !== n.text || cur.qty !== n.qty) { items = items.map(i => i.id === n.id ? n : i); changed = true; } }
           else if (eventType === "DELETE") { if (items.some(i => i.id === o.id)) { items = items.filter(i => i.id !== o.id); changed = true; } }
           if (changed) { saveCache(); render(appearId ? { appearId } : {}); }
         })
