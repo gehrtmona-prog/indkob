@@ -161,7 +161,10 @@
   .catchip { padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); font-size: 14px; cursor: pointer; }
   .catchip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); }
   .cathead { display: block; padding: 18px 4px 4px; font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); border-bottom: 0; }
-  .favrow { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 2px 4px; }
+  .favbtn { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 6px; display: flex; align-items: center; flex: none; }
+  .favbtn:active { transform: scale(.9); }
+  .favwrap { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .favhint { color: var(--muted); font-size: 14px; margin: 6px 2px; }
   .favchip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .favadd { background: none; border: 0; color: var(--text); font-size: 14px; padding: 8px 4px 8px 13px; cursor: pointer; }
   .favx { background: none; border: 0; color: var(--muted); font-size: 16px; padding: 8px 10px 8px 4px; cursor: pointer; }
@@ -211,8 +214,8 @@
     <div class="addrow" id="addrow">
       <div class="box addbox"></div>
       <input id="input" class="additem" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done" autocapitalize="sentences">
+      <button class="favbtn" id="favOpen" aria-label="Hurtig-tilføj"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.6l5.8-.8z"/></svg></button>
     </div>
-    <div class="favrow" id="favRow" hidden></div>
     <ul id="doneList"></ul>
     <div class="empty" id="empty" hidden></div>
     <button class="clear" id="clearbtn" hidden>Ryd afkrydsede</button>
@@ -310,6 +313,18 @@
       <button class="favtoggle" id="favBtn">☆ Gem som favorit</button>
       <button class="newlistbtn" id="itemSave">Gem</button>
       <button class="linkbtn" id="itemDelete">Slet vare</button>
+    </div>
+  </div>
+
+  <!-- Hurtig-tilføj (favoritter) -->
+  <div class="sheet" id="favSheet" hidden>
+    <div class="backdrop" id="favBackdrop"></div>
+    <div class="sheetcard">
+      <div class="sheethead">
+        <h2>Hurtig-tilføj</h2>
+        <button class="iconbtn" id="favClose" aria-label="Luk">×</button>
+      </div>
+      <div class="favwrap" id="favWrap"></div>
     </div>
   </div>
 
@@ -736,14 +751,14 @@
       } else { addItem(cap(name)); }
     }
     function renderFavRow() {
-      const row = $("favRow"); row.innerHTML = "";
+      const wrap = $("favWrap"); wrap.innerHTML = "";
       const arr = [...favs].sort();
-      row.hidden = arr.length === 0;
+      if (!arr.length) { const p = document.createElement("p"); p.className = "favhint"; p.textContent = "Ingen favoritter endnu. Markér en vare som favorit i “Ret vare”."; wrap.append(p); return; }
       arr.forEach(name => {
         const chip = document.createElement("span"); chip.className = "favchip";
         const add = document.createElement("button"); add.className = "favadd"; add.textContent = cap(name); add.onclick = () => quickAdd(name);
         const x = document.createElement("button"); x.className = "favx"; x.textContent = "×"; x.title = "Fjern favorit"; x.onclick = () => toggleFavorite(name);
-        chip.append(add, x); row.append(chip);
+        chip.append(add, x); wrap.append(chip);
       });
     }
 
@@ -1095,6 +1110,9 @@
     $("newInSheet").onclick = newList;
     $("joinInSheet").onclick = joinList;
     $("listsBtn").onclick = openSheet;
+    $("favOpen").onclick = e => { e.stopPropagation(); renderFavRow(); $("favSheet").hidden = false; };
+    $("favClose").onclick = () => { $("favSheet").hidden = true; };
+    $("favBackdrop").onclick = () => { $("favSheet").hidden = true; };
     $("pwBtn").onclick = () => showSetPassword(false);
     $("logoutBtn").onclick = async () => {
       await supa.auth.signOut();
