@@ -143,6 +143,8 @@
   .copyrow .winput { flex: 1; min-width: 0; }
   .copybtn { flex: none; background: var(--accent); color: var(--bg); border: 0; border-radius: 12px; padding: 0 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
   .copybtn.copied { background: var(--ok); }
+  .sheet.centerSheet { align-items: center; }
+  .centerSheet .sheetcard { border-radius: 20px; max-width: 480px; margin: 0 16px; }
 
   .sheetfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   .who { flex: 1 1 100%; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -254,6 +256,21 @@
     </div>
   </div>
 
+  <!-- Navngiv liste / indsæt kode -->
+  <div class="sheet centerSheet" id="nameSheet" hidden>
+    <div class="backdrop" id="nameBackdrop"></div>
+    <div class="sheetcard">
+      <div class="sheethead">
+        <h2 id="nameTitle">Navn</h2>
+        <button class="iconbtn" id="nameCancel" aria-label="Annullér">×</button>
+      </div>
+      <div class="copyrow">
+        <input id="nameInput" class="winput" autocomplete="off" enterkeyhint="done">
+        <button id="nameOk" class="copybtn">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Velkomst: opret eller tilslut din første liste -->
   <div class="setup" id="onboard" hidden>
     <div class="inner">
@@ -302,6 +319,23 @@
   const configured = !SUPABASE_URL.startsWith("DIN_") && !SUPABASE_ANON_KEY.startsWith("DIN_");
   const $ = id => document.getElementById(id);
   const app = $("app"), bar = $("addrow");
+
+  // Lille navngivnings-boks i appens stil (rigtig placeholder, ingen forudfyldt tekst der skal slettes)
+  function askName({ title, placeholder = "", value = "", ok = "OK" }) {
+    return new Promise(resolve => {
+      $("nameTitle").textContent = title;
+      const inp = $("nameInput");
+      inp.placeholder = placeholder; inp.value = value;
+      $("nameOk").textContent = ok;
+      $("nameSheet").hidden = false;
+      setTimeout(() => { inp.focus(); if (value) inp.select(); }, 60);
+      const done = result => { $("nameSheet").hidden = true; resolve(result); };
+      $("nameOk").onclick = () => done(inp.value);
+      $("nameCancel").onclick = () => done(null);
+      $("nameBackdrop").onclick = () => done(null);
+      inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); done(inp.value); } };
+    });
+  }
   let supa, uid;
 
   /* Lokal cache (så appen også viser noget offline) */
@@ -541,9 +575,9 @@
         location.reload();
       };
       $("obCreate").onclick = async () => {
-        const name = (window.prompt("Navn på listen?", "Indkøb") || "").trim();
-        if (!name) return;
-        try { switchTo(await createList(name)); } catch (_) { alert("Kunne ikke oprette – tjek din forbindelse."); }
+        const name = await askName({ title: "Opret liste", placeholder: "Indkøb" });
+        if (name === null) return;
+        try { switchTo(await createList(name.trim() || "Indkøb")); } catch (_) { alert("Kunne ikke oprette – tjek din forbindelse."); }
       };
       const join = async () => {
         const id = parseListId($("obInput").value);
@@ -758,14 +792,14 @@
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
     async function newList() {
-      const name = window.prompt("Navn på den nye liste?", "Ny liste");
+      const name = await askName({ title: "Ny liste", placeholder: "Ny liste" });
       if (name === null) return;
       try { const id = await createList(name.trim() || "Ny liste"); switchTo(id); }
       catch (_) { alert("Kunne ikke oprette listen – tjek din internetforbindelse."); }
     }
     async function renameList(id) {
       const cur = listName(id);
-      const name = window.prompt("Nyt navn til listen:", cur);
+      const name = await askName({ title: "Nyt navn", value: cur, placeholder: cur });
       if (name === null) return;
       const finalName = name.trim() || cur;
       setNameCache(id, finalName); renderLists(); updateTitle();
@@ -804,7 +838,9 @@
       } else { renderLists(); }
     }
     async function joinList() {
-      const id = parseListId(window.prompt("Indsæt invitations-link eller liste-kode:") || "");
+      const raw = await askName({ title: "Tilslut delt liste", placeholder: "Indsæt link eller kode", ok: "Tilslut" });
+      if (raw === null) return;
+      const id = parseListId(raw);
       if (!id) return;
       if (id === listId) { closeSheet(); return; }
       try { await joinServer(id); switchTo(id); }
