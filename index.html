@@ -179,8 +179,8 @@
     <header>
       <button class="title" id="title" aria-label="Skift liste"><span id="titleName">Indkøb</span> <span class="chev">▾</span></button>
       <div class="actions">
+        <button class="iconbtn" id="listsBtn" title="Mine lister" aria-label="Mine lister"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg></button>
         <button class="iconbtn" id="invite" title="Inviter familie" aria-label="Inviter">⤴</button>
-        <button class="iconbtn" id="newlist" title="Ny liste" aria-label="Ny liste">＋</button>
         <button class="avatar" id="profileBtn" aria-label="Konto"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c0-3.6 3-5.6 6.5-5.6s6.5 2 6.5 5.6"/></svg></button>
       </div>
     </header>
@@ -903,7 +903,7 @@
     $("sheetBackdrop").onclick = closeSheet;
     $("newInSheet").onclick = newList;
     $("joinInSheet").onclick = joinList;
-    $("newlist").onclick = newList;
+    $("listsBtn").onclick = openSheet;
     $("pwBtn").onclick = () => showSetPassword(false);
     $("logoutBtn").onclick = async () => {
       await supa.auth.signOut();
