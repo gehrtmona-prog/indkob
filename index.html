@@ -399,6 +399,15 @@
   const setNameCache = (id, name) => { const o = getNames(); o[id] = name; saveNames(o); };
   const listName = id => getNames()[id] || "Indkøb";
 
+  // Kategori-hukommelse: husk hvilken kategori et vare-navn fik, så det auto-sættes næste gang
+  const CATMEM_KEY = "indkob.catmemory";
+  const catMemory = () => JSON.parse(localStorage.getItem(CATMEM_KEY) || "{}");
+  const rememberCat = (name, cat) => {
+    const m = catMemory(); const k = (name || "").trim().toLowerCase(); if (!k) return;
+    if (cat) m[k] = cat; else delete m[k];
+    localStorage.setItem(CATMEM_KEY, JSON.stringify(m));
+  };
+
   // Udtræk liste-koden fra et indsat link eller en kode
   const parseListId = raw => {
     let id = (raw || "").trim();
@@ -735,10 +744,11 @@
       catch (e) { outbox.push(op.queued); saveOutbox(); setStatus("warn", "Offline – gemmes når der er net"); return false; }
     }
     function addItem(text) {
-      const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, qty: 1, created_at: new Date().toISOString() };
+      const category = catMemory()[text.trim().toLowerCase()] || null; // husket kategori for dette navn
+      const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, qty: 1, category, created_at: new Date().toISOString() };
       items.push(item); saveCache(); render({ appearId: item.id });
       input.scrollIntoView({ block: "nearest" });
-      const { qty, ...row } = item; // udelad qty i insert (DB sætter default) -> virker også før kolonnen findes
+      const { qty, ...row } = item; // udelad qty i insert (DB sætter default); category er med
       run({ queued: { type: "insert", row }, exec: () => supa.from("items").insert(row).then(r => { if (r.error) throw r.error; }) });
     }
     function toggle(id) {
@@ -769,7 +779,7 @@
       $("itemBackdrop").onclick = close;
       $("itemSave").onclick = () => {
         const text = $("itemText").value.trim(); if (!text) return;
-        it.text = text; it.qty = q; it.category = cat; saveCache(); render(); close();
+        it.text = text; it.qty = q; it.category = cat; rememberCat(text, cat); saveCache(); render(); close();
         run({ queued: { type: "update", id, fields: { text, qty: q, category: cat } }, exec: () => supa.from("items").update({ text, qty: q, category: cat }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
       };
       $("itemDelete").onclick = () => { close(); remove(id); };
