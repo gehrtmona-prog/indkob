@@ -792,7 +792,7 @@
     const closeSheet = () => { $("listsSheet").hidden = true; };
 
     async function newList() {
-      const name = await askName({ title: "Ny liste", placeholder: "Ny liste" });
+      const name = await askName({ title: "Navn på den nye liste?", placeholder: "Ny liste" });
       if (name === null) return;
       try { const id = await createList(name.trim() || "Ny liste"); switchTo(id); }
       catch (_) { alert("Kunne ikke oprette listen – tjek din internetforbindelse."); }
