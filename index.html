@@ -30,7 +30,7 @@
     background: var(--bg); color: var(--text); line-height: 1.5;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
-  .wrap { max-width: 520px; margin: 0 auto; padding: 28px 20px 120px; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 28px 20px 48px; }
   header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   h1 { font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.5px; }
   .actions { display: flex; gap: 6px; }
@@ -80,17 +80,10 @@
     font-size: 13px; cursor: pointer; text-decoration: underline;
   }
 
-  .barwrap {
-    position: fixed; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(to top, var(--bg) 65%, transparent);
-    padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
-  }
-  .barwrap form {
-    max-width: 520px; margin: 0 auto; display: flex; gap: 10px; background: var(--card);
-    border: 1px solid var(--line); border-radius: 16px; padding: 6px 6px 6px 18px;
-    box-shadow: 0 6px 24px rgba(0,0,0,.06);
-  }
-  .barwrap input { flex: 1; border: 0; background: none; color: var(--text); font-size: 17px; padding: 12px 0; outline: none; }
+  .addrow { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--line); cursor: text; }
+  .addbox { width: 22px; height: 22px; flex: none; border: 1.8px dashed var(--muted); border-radius: 50%; opacity: .55; }
+  .additem { flex: 1; border: 0; background: none; color: var(--text); font-size: 17px; padding: 0; outline: none; }
+  .additem::placeholder { color: var(--muted); }
   .add {
     flex: none; width: 44px; height: 44px; border: 0; border-radius: 12px;
     background: var(--accent); color: var(--bg); font-size: 24px; cursor: pointer; transition: .12s;
@@ -191,15 +184,13 @@
     </div>
 
     <ul id="list"></ul>
-    <div class="empty" id="empty" hidden>Din liste er tom 🛒</div>
+    <div class="addrow" id="addrow">
+      <div class="box addbox"></div>
+      <input id="input" class="additem" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done" autocapitalize="sentences">
+    </div>
+    <ul id="doneList"></ul>
+    <div class="empty" id="empty" hidden></div>
     <button class="clear" id="clearbtn" hidden>Ryd afkrydsede</button>
-  </div>
-
-  <div class="barwrap" id="barwrap" hidden>
-    <form id="form">
-      <input id="input" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done">
-      <button class="add" type="submit" aria-label="Tilføj">+</button>
-    </form>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -310,7 +301,7 @@
 
   const configured = !SUPABASE_URL.startsWith("DIN_") && !SUPABASE_ANON_KEY.startsWith("DIN_");
   const $ = id => document.getElementById(id);
-  const app = $("app"), bar = $("barwrap");
+  const app = $("app"), bar = $("addrow");
   let supa, uid;
 
   /* Lokal cache (så appen også viser noget offline) */
@@ -449,8 +440,8 @@
     let invitesByList = {}; // { list_id: [email, ...] } – afventende invitationer (sendt af mig)
     let myInvites = [];     // [{ id, name }] – invitationer til MIG, endnu ikke accepteret
 
-    const list = $("list"), empty = $("empty"), count = $("count"),
-          clearBtn = $("clearbtn"), form = $("form"), input = $("input"),
+    const list = $("list"), doneList = $("doneList"), empty = $("empty"), count = $("count"),
+          clearBtn = $("clearbtn"), input = $("input"),
           dot = $("dot"), statustext = $("statustext"), toast = $("toast");
 
     const setStatus = (state, text) => { dot.className = "dot" + (state === "ok" ? " ok" : state === "warn" ? " warn" : ""); statustext.textContent = text; };
@@ -596,7 +587,7 @@
     const saveOutbox = () => localStorage.setItem("indkob.outbox", JSON.stringify(outbox));
 
     /* --- Render af varer (inkrementel) --- */
-    const nodes = new Map();
+    const undoneNodes = new Map(), doneNodes = new Map();
     function makeLi(id) {
       const li = document.createElement("li");
       const box = document.createElement("div"); box.className = "box"; box.onclick = () => toggle(id);
@@ -604,21 +595,24 @@
       const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.onclick = () => remove(id);
       li.append(box, label, del); li._label = label; return li;
     }
-    function render(opt = {}) {
-      const sorted = [...items].sort((a, b) => (a.done - b.done) || (new Date(a.created_at) - new Date(b.created_at)));
-      const ids = new Set(items.map(i => i.id));
+    function renderSection(ul, arr, nodes, opt) {
+      const ids = new Set(arr.map(i => i.id));
       for (const [id, li] of nodes) { if (!ids.has(id)) { li.remove(); nodes.delete(id); } }
-      sorted.forEach((it, idx) => {
+      arr.forEach((it, idx) => {
         let li = nodes.get(it.id);
         if (!li) { li = makeLi(it.id); if (opt.appearId === it.id) li.classList.add("appear"); nodes.set(it.id, li); }
         if (li._label.textContent !== it.text) li._label.textContent = it.text;
         li.classList.toggle("done", it.done);
-        if (list.children[idx] !== li) list.insertBefore(li, list.children[idx] || null);
+        if (ul.children[idx] !== li) ul.insertBefore(li, ul.children[idx] || null);
       });
-      const left = items.filter(i => !i.done).length;
-      empty.hidden = items.length > 0;
-      count.textContent = items.length ? `${left} tilbage` : "";
-      clearBtn.hidden = !items.some(i => i.done);
+    }
+    function render(opt = {}) {
+      const undone = items.filter(i => !i.done).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      const done = items.filter(i => i.done).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      renderSection(list, undone, undoneNodes, opt);
+      renderSection(doneList, done, doneNodes, opt);
+      count.textContent = items.length ? `${undone.length} tilbage` : "";
+      clearBtn.hidden = done.length === 0;
     }
 
     /* --- Varer: skrivninger (optimistisk + outbox) --- */
@@ -629,7 +623,7 @@
     function addItem(text) {
       const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, created_at: new Date().toISOString() };
       items.push(item); saveCache(); render({ appearId: item.id });
-      const li = nodes.get(item.id); if (li) li.scrollIntoView({ block: "nearest" });
+      input.scrollIntoView({ block: "nearest" });
       run({ queued: { type: "insert", row: item }, exec: () => supa.from("items").insert(item).then(r => { if (r.error) throw r.error; }) });
     }
     function toggle(id) {
@@ -819,7 +813,14 @@
     const inviteLink = () => location.origin + location.pathname + "?join=" + listId;
 
     /* --- UI-wiring --- */
-    form.onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t) return; addItem(t); input.value = ""; };
+    input.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const t = input.value.trim();
+      if (!t) return;
+      addItem(t); input.value = ""; input.focus(); // bevar fokus til hurtig tilføjelse
+    });
+    $("addrow").onclick = e => { if (e.target !== input) input.focus(); };
     clearBtn.onclick = clearDone;
     function showShare(url) {
       $("shareUrl").value = url;
@@ -864,20 +865,6 @@
 
     window.addEventListener("online", () => { setStatus("ok", "Online"); flushOutbox().then(fetchAll); });
     window.addEventListener("offline", () => setStatus("warn", "Offline – gemmes lokalt"));
-
-    // Lad tilføj-feltet følge tastaturet (som i native apps / Microsoft To Do)
-    const vv = window.visualViewport;
-    if (vv) {
-      const fitBar = () => {
-        const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-        bar.style.transform = overlap ? `translateY(-${overlap}px)` : "";
-        bar.style.paddingBottom = overlap ? "12px" : "";
-      };
-      vv.addEventListener("resize", fitBar);
-      vv.addEventListener("scroll", fitBar);
-      window.addEventListener("scroll", fitBar, { passive: true });
-      fitBar();
-    }
 
     /* --- Start --- */
     render();
