@@ -711,7 +711,7 @@
         del.title = shownMembers.length ? "Forlad liste" : "Slet liste";
         del.onclick = e => { e.stopPropagation(); deleteList(id); };
         if (pending.length) {
-          const undo = document.createElement("button"); undo.className = "rowbtn"; undo.textContent = "↩"; undo.title = "Annullér invitation";
+          const undo = document.createElement("button"); undo.className = "rowbtn"; undo.textContent = "↺"; undo.title = "Annullér invitation";
           undo.onclick = e => { e.stopPropagation(); cancelInvites(id, pending); };
           li.append(name, undo, ren, del);
         } else {
