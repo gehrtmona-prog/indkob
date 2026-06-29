@@ -118,12 +118,13 @@
   .sheet .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.4); }
   .sheetcard {
     position: relative; background: var(--card); width: 100%; max-width: 520px;
-    border-radius: 20px 20px 0 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0; padding: 0 20px calc(22px + env(safe-area-inset-bottom));
     box-shadow: 0 -8px 40px rgba(0,0,0,.2); animation: up .2s ease;
+    max-height: 85vh; max-height: 85dvh; overflow-y: auto;
   }
   @media (min-width: 560px) { .sheetcard { border-radius: 20px; } }
   @keyframes up { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
-  .sheethead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .sheethead { display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--card); z-index: 2; padding: 18px 0 10px; }
   .sheethead h2 { font-size: 18px; margin: 0; }
   .lists { list-style: none; margin: 0; padding: 0; }
   .listrow { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
