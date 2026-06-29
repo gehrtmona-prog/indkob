@@ -399,14 +399,6 @@
   const setNameCache = (id, name) => { const o = getNames(); o[id] = name; saveNames(o); };
   const listName = id => getNames()[id] || "Indkøb";
 
-  // Kategori-hukommelse: husk hvilken kategori et vare-navn fik, så det auto-sættes næste gang
-  const CATMEM_KEY = "indkob.catmemory";
-  const catMemory = () => JSON.parse(localStorage.getItem(CATMEM_KEY) || "{}");
-  const rememberCat = (name, cat) => {
-    const m = catMemory(); const k = (name || "").trim().toLowerCase(); if (!k) return;
-    if (cat) m[k] = cat; else delete m[k];
-    localStorage.setItem(CATMEM_KEY, JSON.stringify(m));
-  };
 
   // Udtræk liste-koden fra et indsat link eller en kode
   const parseListId = raw => {
@@ -680,6 +672,35 @@
     const saveCache = () => localStorage.setItem(cacheKey(), JSON.stringify(items));
     const saveOutbox = () => localStorage.setItem("indkob.outbox", JSON.stringify(outbox));
 
+    /* --- Kategori-hukommelse (fælles for listen, cachet lokalt) --- */
+    const catMemKey = () => "indkob.catmem." + listId;
+    let catMap = JSON.parse(localStorage.getItem(catMemKey()) || "{}");
+    const catFor = name => catMap[(name || "").trim().toLowerCase()] || null;
+    async function loadCatMemory() {
+      try {
+        const { data, error } = await supa.from("cat_memory").select("name,category").eq("list_id", listId);
+        if (error) throw error;
+        const m = {}; (data || []).forEach(r => { m[r.name] = r.category; });
+        catMap = m;
+        // Frø hukommelsen fra varer, der allerede har en kategori
+        items.forEach(it => {
+          const k = (it.text || "").trim().toLowerCase();
+          if (k && CATEGORIES.includes(it.category) && !catMap[k]) {
+            catMap[k] = it.category;
+            supa.from("cat_memory").upsert({ list_id: listId, name: k, category: it.category }).then(() => {}, () => {});
+          }
+        });
+        localStorage.setItem(catMemKey(), JSON.stringify(catMap));
+      } catch (_) { /* tabel mangler endnu eller offline – behold lokal cache */ }
+    }
+    function rememberCat(name, cat) {
+      const k = (name || "").trim().toLowerCase(); if (!k) return;
+      if (cat) catMap[k] = cat; else delete catMap[k];
+      localStorage.setItem(catMemKey(), JSON.stringify(catMap));
+      if (cat) supa.from("cat_memory").upsert({ list_id: listId, name: k, category: cat }).then(() => {}, () => {});
+      else supa.from("cat_memory").delete().eq("list_id", listId).eq("name", k).then(() => {}, () => {});
+    }
+
     /* --- Render af varer (inkrementel) --- */
     const undoneNodes = new Map(), doneNodes = new Map();
     function makeLi(id) {
@@ -744,7 +765,7 @@
       catch (e) { outbox.push(op.queued); saveOutbox(); setStatus("warn", "Offline – gemmes når der er net"); return false; }
     }
     function addItem(text) {
-      const category = catMemory()[text.trim().toLowerCase()] || null; // husket kategori for dette navn
+      const category = catFor(text); // husket kategori for dette navn (fælles for listen)
       const item = { id: crypto.randomUUID(), list_id: listId, text, done: false, qty: 1, category, created_at: new Date().toISOString() };
       items.push(item); saveCache(); render({ appearId: item.id });
       input.scrollIntoView({ block: "nearest" });
@@ -829,6 +850,12 @@
         .on("postgres_changes", { event: "*", schema: "public", table: "lists", filter: "id=eq." + listId }, payload => {
           const n = payload.new;
           if (payload.eventType !== "DELETE" && n && n.name) { setNameCache(n.id, n.name); updateTitle(); if (!$("listsSheet").hidden) renderLists(); }
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "cat_memory", filter: "list_id=eq." + listId }, payload => {
+          const { eventType, new: n, old: o } = payload;
+          if (eventType === "DELETE") { if (o && o.name) delete catMap[o.name]; }
+          else if (n && n.name) { catMap[n.name] = n.category; }
+          localStorage.setItem(catMemKey(), JSON.stringify(catMap));
         })
         .subscribe(status => {
           if (status === "SUBSCRIBED") { setStatus("ok", "Synkroniseret"); flushOutbox().then(fetchAll); }
@@ -1031,6 +1058,7 @@
     render();
     setStatus("", "Forbinder…");
     await fetchAll();
+    loadCatMemory();
     subscribe();
     loadMembers(); loadInvites(); loadMyInvites();
   }
