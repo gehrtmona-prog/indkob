@@ -156,6 +156,11 @@
   .stepper { display: flex; align-items: center; gap: 6px; }
   .stepper button { width: 40px; height: 40px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 10px; font-size: 22px; line-height: 1; cursor: pointer; }
   .stepper span { min-width: 36px; text-align: center; font-size: 17px; }
+  .catlabel { font-size: 14px; color: var(--muted); margin-top: 16px; }
+  .catpick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .catchip { padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); font-size: 14px; cursor: pointer; }
+  .catchip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .cathead { display: block; padding: 18px 4px 4px; font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); border-bottom: 0; }
 
   .sheetfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   .who { flex: 1 1 100%; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -294,6 +299,8 @@
           <button type="button" id="qtyPlus" aria-label="Flere">+</button>
         </div>
       </div>
+      <div class="catlabel">Kategori</div>
+      <div class="catpick" id="catPick"></div>
       <button class="newlistbtn" id="itemSave">Gem</button>
       <button class="linkbtn" id="itemDelete">Slet vare</button>
     </div>
@@ -362,6 +369,7 @@
   const configured = !SUPABASE_URL.startsWith("DIN_") && !SUPABASE_ANON_KEY.startsWith("DIN_");
   const $ = id => document.getElementById(id);
   const app = $("app"), bar = $("addrow");
+  const CATEGORIES = ["Frugt & grønt", "Mejeri & køl", "Kød & fisk", "Frost", "Brød", "Kolonial", "Drikkevarer", "Snacks & slik", "Husholdning"];
 
   // Lille navngivnings-boks i appens stil (rigtig placeholder, ingen forudfyldt tekst der skal slettes)
   function askName({ title, placeholder = "", value = "", ok = "OK" }) {
@@ -675,24 +683,48 @@
       const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.onclick = () => remove(id);
       li.append(box, label, del); li._text = ltext; li._qty = qty; return li;
     }
-    function renderSection(ul, arr, nodes, opt) {
-      const ids = new Set(arr.map(i => i.id));
-      for (const [id, li] of nodes) { if (!ids.has(id)) { li.remove(); nodes.delete(id); } }
-      arr.forEach((it, idx) => {
-        let li = nodes.get(it.id);
-        if (!li) { li = makeLi(it.id); if (opt.appearId === it.id) li.classList.add("appear"); nodes.set(it.id, li); }
-        if (li._text.textContent !== it.text) li._text.textContent = it.text;
-        const qtyText = (it.qty || 1) > 1 ? "×" + it.qty : "";
-        if (li._qty.textContent !== qtyText) li._qty.textContent = qtyText;
-        li.classList.toggle("done", it.done);
-        if (ul.children[idx] !== li) ul.insertBefore(li, ul.children[idx] || null);
+    function makeHead() { const li = document.createElement("li"); li.className = "cathead"; return li; }
+    function renderSection(ul, rows, nodes, opt) {
+      const keys = new Set(rows.map(r => r.key));
+      for (const [k, el] of nodes) { if (!keys.has(k)) { el.remove(); nodes.delete(k); } }
+      rows.forEach((row, idx) => {
+        let el = nodes.get(row.key);
+        if (!el) {
+          el = row.type === "head" ? makeHead() : makeLi(row.item.id);
+          if (row.type === "item" && opt.appearId === row.item.id) el.classList.add("appear");
+          nodes.set(row.key, el);
+        }
+        if (row.type === "head") {
+          if (el.textContent !== row.text) el.textContent = row.text;
+        } else {
+          const it = row.item;
+          if (el._text.textContent !== it.text) el._text.textContent = it.text;
+          const qtyText = (it.qty || 1) > 1 ? "×" + it.qty : "";
+          if (el._qty.textContent !== qtyText) el._qty.textContent = qtyText;
+          el.classList.toggle("done", it.done);
+        }
+        if (ul.children[idx] !== el) ul.insertBefore(el, ul.children[idx] || null);
       });
+    }
+    function buildRows(arr, grouped) {
+      if (!grouped) return arr.map(it => ({ key: it.id, type: "item", item: it }));
+      const order = [...CATEGORIES, "Andet"];
+      const byCat = {};
+      arr.forEach(it => { const c = CATEGORIES.includes(it.category) ? it.category : "Andet"; (byCat[c] = byCat[c] || []).push(it); });
+      const rows = [];
+      order.forEach(cat => {
+        const a = byCat[cat]; if (!a || !a.length) return;
+        rows.push({ key: "cat:" + cat, type: "head", text: cat });
+        a.forEach(it => rows.push({ key: it.id, type: "item", item: it }));
+      });
+      return rows;
     }
     function render(opt = {}) {
       const undone = items.filter(i => !i.done).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       const done = items.filter(i => i.done).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      renderSection(list, undone, undoneNodes, opt);
-      renderSection(doneList, done, doneNodes, opt);
+      const grouped = undone.some(i => CATEGORIES.includes(i.category));
+      renderSection(list, buildRows(undone, grouped), undoneNodes, opt);
+      renderSection(doneList, buildRows(done, false), doneNodes, opt);
       count.textContent = items.length ? `${undone.length} tilbage` : "";
       clearBtn.hidden = done.length === 0;
     }
@@ -717,9 +749,19 @@
     function editItem(id) {
       const it = items.find(i => i.id === id); if (!it) return;
       let q = it.qty || 1;
+      let cat = CATEGORIES.includes(it.category) ? it.category : null;
       $("itemText").value = it.text;
       const setQ = () => { $("qtyVal").textContent = q; };
       setQ();
+      const cp = $("catPick"); cp.innerHTML = "";
+      const mkChip = (label, val) => {
+        const b = document.createElement("button"); b.type = "button";
+        b.className = "catchip" + (cat === val ? " sel" : ""); b.textContent = label;
+        b.onclick = () => { cat = val; [...cp.children].forEach(c => c.classList.remove("sel")); b.classList.add("sel"); };
+        cp.append(b);
+      };
+      mkChip("Ingen", null);
+      CATEGORIES.forEach(c => mkChip(c, c));
       $("qtyMinus").onclick = () => { if (q > 1) { q--; setQ(); } };
       $("qtyPlus").onclick = () => { if (q < 99) { q++; setQ(); } };
       const close = () => { $("itemSheet").hidden = true; };
@@ -727,8 +769,8 @@
       $("itemBackdrop").onclick = close;
       $("itemSave").onclick = () => {
         const text = $("itemText").value.trim(); if (!text) return;
-        it.text = text; it.qty = q; saveCache(); render(); close();
-        run({ queued: { type: "update", id, fields: { text, qty: q } }, exec: () => supa.from("items").update({ text, qty: q }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
+        it.text = text; it.qty = q; it.category = cat; saveCache(); render(); close();
+        run({ queued: { type: "update", id, fields: { text, qty: q, category: cat } }, exec: () => supa.from("items").update({ text, qty: q, category: cat }).eq("id", id).then(r => { if (r.error) throw r.error; }) });
       };
       $("itemDelete").onclick = () => { close(); remove(id); };
       $("itemText").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $("itemSave").click(); } };
@@ -770,7 +812,7 @@
         .on("postgres_changes", { event: "*", schema: "public", table: "items", filter: "list_id=eq." + listId }, payload => {
           const { eventType, new: n, old: o } = payload; let changed = false, appearId = null;
           if (eventType === "INSERT") { if (!items.some(i => i.id === n.id)) { items.push(n); changed = true; appearId = n.id; } }
-          else if (eventType === "UPDATE") { const cur = items.find(i => i.id === n.id); if (!cur || cur.done !== n.done || cur.text !== n.text || cur.qty !== n.qty) { items = items.map(i => i.id === n.id ? n : i); changed = true; } }
+          else if (eventType === "UPDATE") { const cur = items.find(i => i.id === n.id); if (!cur || cur.done !== n.done || cur.text !== n.text || cur.qty !== n.qty || cur.category !== n.category) { items = items.map(i => i.id === n.id ? n : i); changed = true; } }
           else if (eventType === "DELETE") { if (items.some(i => i.id === o.id)) { items = items.filter(i => i.id !== o.id); changed = true; } }
           if (changed) { saveCache(); render(appearId ? { appearId } : {}); }
         })
