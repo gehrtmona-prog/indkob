@@ -161,6 +161,11 @@
   .catchip { padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); font-size: 14px; cursor: pointer; }
   .catchip.sel { background: var(--accent); color: var(--bg); border-color: var(--accent); }
   .cathead { display: block; padding: 18px 4px 4px; font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); border-bottom: 0; }
+  .favrow { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 2px 4px; }
+  .favchip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .favadd { background: none; border: 0; color: var(--text); font-size: 14px; padding: 8px 4px 8px 13px; cursor: pointer; }
+  .favx { background: none; border: 0; color: var(--muted); font-size: 16px; padding: 8px 10px 8px 4px; cursor: pointer; }
+  .favtoggle { display: block; width: 100%; margin-top: 14px; background: none; border: 1px solid var(--line); border-radius: 12px; color: var(--text); font-size: 15px; padding: 12px; cursor: pointer; }
 
   .sheetfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   .who { flex: 1 1 100%; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -207,6 +212,7 @@
       <div class="box addbox"></div>
       <input id="input" class="additem" placeholder="Tilføj vare…" autocomplete="off" enterkeyhint="done" autocapitalize="sentences">
     </div>
+    <div class="favrow" id="favRow" hidden></div>
     <ul id="doneList"></ul>
     <div class="empty" id="empty" hidden></div>
     <button class="clear" id="clearbtn" hidden>Ryd afkrydsede</button>
@@ -301,6 +307,7 @@
       </div>
       <div class="catlabel">Kategori</div>
       <div class="catpick" id="catPick"></div>
+      <button class="favtoggle" id="favBtn">☆ Gem som favorit</button>
       <button class="newlistbtn" id="itemSave">Gem</button>
       <button class="linkbtn" id="itemDelete">Slet vare</button>
     </div>
@@ -701,6 +708,45 @@
       else supa.from("cat_memory").delete().eq("list_id", listId).eq("name", k).then(() => {}, () => {});
     }
 
+    /* --- Favoritter (fælles for listen, hurtig-tilføj) --- */
+    const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    const favKey = () => "indkob.fav." + listId;
+    let favs = new Set(JSON.parse(localStorage.getItem(favKey()) || "[]"));
+    const saveFavs = () => localStorage.setItem(favKey(), JSON.stringify([...favs]));
+    const isFav = name => favs.has((name || "").trim().toLowerCase());
+    async function loadFavorites() {
+      try {
+        const { data, error } = await supa.from("favorites").select("name").eq("list_id", listId);
+        if (error) throw error;
+        favs = new Set((data || []).map(r => r.name));
+        saveFavs(); renderFavRow();
+      } catch (_) { /* tabel mangler endnu eller offline – behold cache */ }
+    }
+    function toggleFavorite(name) {
+      const k = (name || "").trim().toLowerCase(); if (!k) return;
+      if (favs.has(k)) { favs.delete(k); supa.from("favorites").delete().eq("list_id", listId).eq("name", k).then(() => {}, () => {}); }
+      else { favs.add(k); supa.from("favorites").upsert({ list_id: listId, name: k }).then(() => {}, () => {}); }
+      saveFavs(); renderFavRow();
+    }
+    function quickAdd(name) {
+      const existing = items.find(i => !i.done && (i.text || "").trim().toLowerCase() === name);
+      if (existing) {
+        existing.qty = (existing.qty || 1) + 1; saveCache(); render();
+        run({ queued: { type: "update", id: existing.id, fields: { qty: existing.qty } }, exec: () => supa.from("items").update({ qty: existing.qty }).eq("id", existing.id).then(r => { if (r.error) throw r.error; }) });
+      } else { addItem(cap(name)); }
+    }
+    function renderFavRow() {
+      const row = $("favRow"); row.innerHTML = "";
+      const arr = [...favs].sort();
+      row.hidden = arr.length === 0;
+      arr.forEach(name => {
+        const chip = document.createElement("span"); chip.className = "favchip";
+        const add = document.createElement("button"); add.className = "favadd"; add.textContent = cap(name); add.onclick = () => quickAdd(name);
+        const x = document.createElement("button"); x.className = "favx"; x.textContent = "×"; x.title = "Fjern favorit"; x.onclick = () => toggleFavorite(name);
+        chip.append(add, x); row.append(chip);
+      });
+    }
+
     /* --- Render af varer (inkrementel) --- */
     const undoneNodes = new Map(), doneNodes = new Map();
     function makeLi(id) {
@@ -793,6 +839,10 @@
       };
       mkChip("Ingen", null);
       CATEGORIES.forEach(c => mkChip(c, c));
+      const curName = () => $("itemText").value.trim() || it.text;
+      const setFavBtn = () => { $("favBtn").textContent = isFav(curName()) ? "★ Fjern favorit" : "☆ Gem som favorit"; };
+      setFavBtn();
+      $("favBtn").onclick = () => { toggleFavorite(curName()); setFavBtn(); };
       $("qtyMinus").onclick = () => { if (q > 1) { q--; setQ(); } };
       $("qtyPlus").onclick = () => { if (q < 99) { q++; setQ(); } };
       const close = () => { $("itemSheet").hidden = true; };
@@ -856,6 +906,12 @@
           if (eventType === "DELETE") { if (o && o.name) delete catMap[o.name]; }
           else if (n && n.name) { catMap[n.name] = n.category; }
           localStorage.setItem(catMemKey(), JSON.stringify(catMap));
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "favorites", filter: "list_id=eq." + listId }, payload => {
+          const { eventType, new: n, old: o } = payload;
+          if (eventType === "DELETE") { if (o && o.name) favs.delete(o.name); }
+          else if (n && n.name) favs.add(n.name);
+          saveFavs(); renderFavRow();
         })
         .subscribe(status => {
           if (status === "SUBSCRIBED") { setStatus("ok", "Synkroniseret"); flushOutbox().then(fetchAll); }
@@ -1059,6 +1115,7 @@
     setStatus("", "Forbinder…");
     await fetchAll();
     loadCatMemory();
+    loadFavorites();
     subscribe();
     loadMembers(); loadInvites(); loadMyInvites();
   }
